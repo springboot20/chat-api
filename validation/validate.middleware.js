@@ -1,6 +1,6 @@
-import { validationResult } from 'express-validator';
-import { ApiError } from '../utils/ApiError.js';
-import { StatusCodes } from 'http-status-codes';
+import { validationResult } from "express-validator";
+import { ApiError } from "../utils/ApiError.js";
+import { StatusCodes } from "http-status-codes";
 
 /**
  *
@@ -11,16 +11,19 @@ import { StatusCodes } from 'http-status-codes';
 export const validate = (req, res, next) => {
   const validationErrors = validationResult(req);
 
-  if (!validationErrors.isEmpty()) {
+  if (validationErrors.isEmpty()) {
     return next();
+  } else {
+
+    let extractedError = [];
+    validationErrors
+      .array()
+      .map((error) => extractedError.push({ [error.path]: error.msg }));
+
+    throw new ApiError(
+      StatusCodes.UNPROCESSABLE_ENTITY,
+      "Received data is not valid",
+      extractedError
+    );
   }
-
-  let extractedError = [];
-  validationErrors.array().map((error) => extractedError.push({ [error.path]: error.msg }));
-
-  throw new ApiError(
-    StatusCodes.UNPROCESSABLE_ENTITY,
-    'Received data is not valid',
-    extractedError
-  );
 };

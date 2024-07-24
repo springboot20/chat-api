@@ -1,13 +1,13 @@
-import { Schema, model } from 'mongoose';
+import { Schema, model } from "mongoose";
 import {
   AvailableUserRole,
   UserRoles,
   LoginType,
   AvailableLoginType,
-} from '../../constants/constants.js';
-import bcrypt from 'bcrypt';
-import crypto from 'crypto';
-import jsonwebtoken from 'jsonwebtoken';
+} from "../../constants/constants.js";
+import bcrypt from "bcrypt";
+import crypto from "crypto";
+import jsonwebtoken from "jsonwebtoken";
 
 const userSchema = new Schema(
   {
@@ -33,7 +33,6 @@ const userSchema = new Schema(
     },
     password: {
       type: String,
-      lowercase: true,
       required: true,
     },
     isEmailVerified: {
@@ -45,39 +44,46 @@ const userSchema = new Schema(
       enum: AvailableUserRole,
       default: UserRoles.USER,
     },
-    refreshToken: { 
-      type: String
+    refreshToken: {
+      type: String,
     },
-    loginType: { 
-      type: String, 
+    loginType: {
+      type: String,
       enum: AvailableLoginType,
-       default: LoginType.EMAIL_PASSWORD 
-      },
-    emailVerificationToken: { 
-      type: String 
+      default: LoginType.EMAIL_PASSWORD,
     },
-    emailVerificationExpiry: { 
-      type: Date 
+    emailVerificationToken: {
+      type: String,
     },
-    forgotPasswordToken: { 
-      type: String 
+    emailVerificationExpiry: {
+      type: Date,
     },
-    forgotPasswordExpiry: { 
-      type: Date 
+    forgotPasswordToken: {
+      type: String,
+    },
+    forgotPasswordExpiry: {
+      type: Date,
     },
   },
   { timestamps: true }
 );
 
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
+  try {
+    const salt = await bcrypt.genSalt(10); // 10 is a reasonable salt rounds value
+
+    this.password = await bcrypt.hash(this.password, salt);
+
+    next();
+  } catch (error) {
+    next(error); // Pass error to next middleware
+  }
 });
 
-userSchema.methods.isPasswordsCorrect = async function (password) {
-  return await bcrypt.compare(password, this.password);
+userSchema.methods.isPasswordsCorrect = async function (entered_password) {
+  console.log(await bcrypt.compare(entered_password, this.password));
+  return await bcrypt.compare(entered_password, this.password);
 };
 
 userSchema.methods.generateAccessToken = function () {
@@ -101,13 +107,16 @@ userSchema.methods.generateRefreshToken = function () {
 };
 
 userSchema.methods.generateTemporaryToken = function () {
-  const unHashedToken = crypto.randomBytes(20).toString('hex');
-  const hashedToken = crypto.createHash('sha256').update(unHashedToken).digest('hex');
+  const unHashedToken = crypto.randomBytes(20).toString("hex");
+  const hashedToken = crypto
+    .createHash("sha256")
+    .update(unHashedToken)
+    .digest("hex");
 
   const tokenExpiry = 5 * 60 * 1000;
 
   return { unHashedToken, hashedToken, tokenExpiry };
 };
 
-const userModel = model('User', userSchema);
+const userModel = model("User", userSchema);
 export { userModel };
