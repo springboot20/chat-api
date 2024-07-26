@@ -3,13 +3,12 @@ import { chatController } from "../../controllers/index.js";
 import { validate } from "../../validation/validate.middleware.js";
 import { verifyJWT } from "../../middlewares/auth.middleware.js";
 import { mongoPathVariableValidation } from "../../validation/mongo/mongoId.validators.js";
-import { getAllChats } from "../../controllers/chat/message.controller.js";
 
 export const router = Router();
 
 router.use(verifyJWT);
 
-router.route("/").get(getAllChats);
+router.route("/").get(chatController.getAllChats);
 
 router
   .route("/create-chat/:receiverId")

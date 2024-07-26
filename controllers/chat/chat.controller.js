@@ -408,19 +408,20 @@ export const addParticipantToGroupChat = asyncHandler(async (req, res) => {
   const { chatId, participantId } = req.params;
 
   const chat = await chatModel.findOne({
-    _id: mongoose.Types.Object(chatId),
+    _id: new mongoose.Types.ObjectId(chatId),
     isGroupChat: true,
   });
 
-  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat does not exists');
+  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Group chat does not exists');
 
-  const existingParticipants = chat.participants;
-
-  if (!existingParticipants.admin.toString() !== req.user._id.toString()) {
+  
+  if (chat.admin?.toString() !== req.user._id.toString()) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Only admin can add participants');
   }
 
-  if (existingParticipants.includes(participantId)) {
+  const existingParticipants = chat.participants;
+
+  if (existingParticipants?.includes(participantId)) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Participant already exists');
   }
 
@@ -525,4 +526,26 @@ export const searchAvailableUsers = asyncHandler(async (req, res) => {
   ]);
 
   return res.status(200).json(new ApiResponse(200, users, 'Users fetched successfully'));
+});
+
+export const getAllChats = asyncHandler(async (req, res) => {
+  const chats = await chatModel.aggregate([
+    {
+      $match: {
+        participants: { $elemMatch: { $eq: req.user._id } }, // get all chats that have logged in user as a participant
+      },
+    },
+    {
+      $sort: {
+        updatedAt: -1,
+      },
+    },
+    ...pipelineAggregation(),
+  ]);
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, chats || [], "User chats fetched successfully!")
+    );
 });
