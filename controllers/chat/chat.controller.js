@@ -453,7 +453,7 @@ export const addParticipantToGroupChat = asyncHandler(async (req, res) => {
   return new ApiResponse(StatusCodes.OK, 'Participant added successfully', updatedGroupPayload);
 });
 
-export const removeParticipantToGroupChat = asyncHandler(async (req, res) => {
+export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
   const { chatId, participantId } = req.params;
 
   const chat = await chatModel.findOne({

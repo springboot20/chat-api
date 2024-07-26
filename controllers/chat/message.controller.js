@@ -31,6 +31,11 @@ const pipelineAggregation = () => {
         ],
       },
     },
+    {
+      $addFields: {
+        sender: { $first: "$sender" },
+      },
+    },
   ];
 };
 
