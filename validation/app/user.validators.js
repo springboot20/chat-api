@@ -22,6 +22,7 @@ export const userRegisterValidation = () => {
       .withMessage("Password is required")
       .isLength({ min: 3 })
       .withMessage("Password should be a minimum of 3 "),
+    body("avatar").optional(),
     body("role")
       .optional()
       .trim()
