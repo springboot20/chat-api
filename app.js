@@ -27,6 +27,8 @@ const httpServer = http.createServer(app);
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+console.log(process.env.CORS_ORIGIN);
+
 const io = new Server(httpServer, {
   pingTimeout: 60000,
   cors: {
@@ -42,7 +44,13 @@ app.use(bodyParser.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
-app.use(cors({ origin: process.env.CORS_ORIGIN }));
+app.use(
+  cors({
+    origin: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
