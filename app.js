@@ -44,12 +44,7 @@ app.use(bodyParser.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
-app.use(
-  cors({
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  }),
-);
+app.use(cors());
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
