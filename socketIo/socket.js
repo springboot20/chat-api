@@ -10,11 +10,13 @@ const initializeSocket = (io) => {
       const authorization = socket.handshake?.headers?.authorization;
       const cookies = cookie.parse(socket.handshake?.headers?.cookies);
 
+      console.log(authorization)
+
       let cookieToken = cookies?.accessToken;
 
       if (!authorization || !authorization.startsWith('Bearer')) {
         throw new ApiError(401, 'Un-authentication failed, Token is invalid', []);
-      }template
+      }
 
       let authToken = authorization.split(' ')[1];
 

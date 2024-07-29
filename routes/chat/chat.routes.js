@@ -3,6 +3,7 @@ import { chatController } from "../../controllers/index.js";
 import { validate } from "../../validation/validate.middleware.js";
 import { verifyJWT } from "../../middlewares/auth.middleware.js";
 import { mongoPathVariableValidation } from "../../validation/mongo/mongoId.validators.js";
+import { removeUnusedMulterFilesOnError } from "../../helpers/index.js";
 
 export const router = Router();
 
@@ -17,6 +18,8 @@ router
     mongoPathVariableValidation("receiverId"),
     chatController.GetOrCreateChatMessage
   );
+
+router.route("/available-users").get(chatController.searchAvailableUsers);
 
 router.route("/group-chat").post(chatController.createGroupChat);
 

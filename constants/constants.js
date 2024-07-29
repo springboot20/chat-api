@@ -13,6 +13,7 @@ export const LoginType = {
 export const AvailableLoginType = Object.values(LoginType);
 
 export const SocketEventEnum = {
+  JOIN_CHAT_EVENT: "joinChat",
   CONNECTED_EVENT: 'connected',
   DISCONNECT_EVENT: 'disconnect',
   NEW_CHAT_EVENT: 'newChat',
