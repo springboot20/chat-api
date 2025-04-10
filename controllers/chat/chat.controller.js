@@ -18,7 +18,7 @@ const pipelineAggregation = () => {
   return [
     {
       $lookup: {
-        from: 'user',
+        from: 'users',
         foreignField: '_id',
         localField: 'participants',
         as: 'participants',
@@ -102,6 +102,7 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
   const { receiverId } = req.params;
 
   const receiver = await userModel.findOne({ _id: new mongoose.Types.ObjectId(receiverId) });
+  console.log(receiver);
 
   if (!receiver) throw new ApiError(StatusCodes.NOT_FOUND, 'Receiver does not exists');
 
@@ -116,14 +117,14 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
           {
             participants: {
               $elemMatch: {
-                $ne: req.user._id,
+                $eq: req.user._id,
               },
             },
           },
           {
             participants: {
               $elemMatch: {
-                $ne: new mongoose.Types.ObjectId(receiver),
+                $eq: new mongoose.Types.ObjectId(receiver?._id),
               },
             },
           },
@@ -136,7 +137,7 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
   if (chat.length) {
     return res
       .status(StatusCodes.OK)
-      .json(new ApiResponse(StatusCodes.OK, chat[0], 'chat retrieved successfully'));
+      .json(new ApiResponse(StatusCodes.OK, 'chat retrieved successfully', chat[0]));
   }
 
   const newChatMessageInstanceWithSomeone = await chatModel.create({
@@ -145,6 +146,8 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
     participants: [req.user._id, new mongoose.Types.ObjectId(receiverId)],
     admin: req.user._id,
   });
+
+  console.log(newChatMessageInstanceWithSomeone)
 
   const createdChat = await chatModel.aggregate([
     {
@@ -159,15 +162,17 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
 
   if (!chatPayload) throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Internal server error');
 
+  console.log(chatPayload, 'line 165');
+
   chatPayload?.participants?.forEach((participant) => {
     if (req.user._id.toString() === participant._id.toString()) return;
 
-    mountNewChatEvent(req, SocketEventEnum.NEW_CHAT_EVENT, chatPayload, participant._id.tostring());
+    mountNewChatEvent(req, SocketEventEnum.NEW_CHAT_EVENT, chatPayload, participant._id.toString());
   });
 
   return res
     .status(StatusCodes.OK)
-    .json(new ApiResponse(StatusCodes.OK, chatPayload, 'Chat retrieved successfully'));
+    .json(new ApiResponse(StatusCodes.OK, 'Chat retrieved successfully', chatPayload));
 });
 
 export const createGroupChat = asyncHandler(async (req, res) => {
@@ -215,7 +220,7 @@ export const createGroupChat = asyncHandler(async (req, res) => {
 
   return res
     .status(StatusCodes.OK)
-    .json(new ApiResponse(StatusCodes.OK, groupChatPayload, 'Chat retrieved successfully'));
+    .json(new ApiResponse(StatusCodes.OK, 'Chat retrieved successfully', groupChatPayload));
 });
 
 export const changeGroupName = asyncHandler(
@@ -261,7 +266,7 @@ export const changeGroupName = asyncHandler(
       mountNewChatEvent(req, SocketEventEnum.NEW_GROUP_NAME, chat, participant._id.toString());
     });
 
-    return new ApiResponse(StatusCodes.OK, chat[0], 'Group chat nae updated');
+    return new ApiResponse(StatusCodes.OK,  'Group chat nae updated', chat[0]);
   })
 );
 
@@ -334,28 +339,29 @@ export const leaveGroupChat = asyncHandler(async (req, res) => {
 export const deleteOneOnOneChat = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
 
+  console.log(chatId);
+
   const chat = await chatModel.aggregate([
     {
       $match: {
         _id: new mongoose.Types.ObjectId(chatId),
-        isGroupChat: false,
       },
     },
     ...pipelineAggregation(),
   ]);
 
-  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'chat does not exits');
-
   const chatPayload = chat[0];
 
-  if (!chatPayload) throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Internal server error');
+  if (!chatPayload) throw new ApiError(StatusCodes.NOT_FOUND, 'chat does not exits');
+
+  console.log(chatPayload);
 
   await chatModel.findByIdAndDelete(chatId);
-  await deleteCascadeMessages(chatId);
+  // await deleteCascadeMessages(chatId);
 
-  const otherParticipants = chatPayload?.participants?.filter(
-    (participant) => participant._id.toString() !== req.user._id.toString()
-  );
+  const otherParticipants = chatPayload?.participants?.filter((participant) => {
+    return participant.toString() !== req.user._id.toString();
+  });
 
   mountNewChatEvent(req, SocketEventEnum.LEAVE_CHAT_EVENT, chatPayload, otherParticipants[0]._id);
 });
@@ -414,7 +420,6 @@ export const addParticipantToGroupChat = asyncHandler(async (req, res) => {
 
   if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Group chat does not exists');
 
-  
   if (chat.admin?.toString() !== req.user._id.toString()) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Only admin can add participants');
   }
@@ -525,7 +530,7 @@ export const searchAvailableUsers = asyncHandler(async (req, res) => {
     },
   ]);
 
-  return res.status(200).json(new ApiResponse(200, users, 'Users fetched successfully'));
+  return res.status(200).json(new ApiResponse(200, 'Users fetched successfully', users));
 });
 
 export const getAllChats = asyncHandler(async (req, res) => {
@@ -545,7 +550,5 @@ export const getAllChats = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(
-      new ApiResponse(200, chats || [], "User chats fetched successfully!")
-    );
+    .json(new ApiResponse(200, 'User chats fetched successfully!', chats || []));
 });

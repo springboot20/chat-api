@@ -33,7 +33,7 @@ const pipelineAggregation = () => {
     },
     {
       $addFields: {
-        sender: { $first: "$sender" },
+        sender: { $first: '$sender' },
       },
     },
   ];
@@ -41,6 +41,8 @@ const pipelineAggregation = () => {
 
 export const getAllChats = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
+
+  console.log(chatId, "line 45");
 
   const chat = await chatModel.findById(chatId);
 
@@ -73,8 +75,8 @@ export const createMessage = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
   const { content } = req.body;
 
-  if (!content && !req.file?.attachments?.length) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Message content or file attachments is required');
+  if (!content) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Message content or file attachments is required');
   }
 
   const chat = await chatModel.findById(chatId);
@@ -130,10 +132,11 @@ export const createMessage = asyncHandler(async (req, res) => {
 
   updatedMessage.participants.forEach((participantObjId) => {
     if (participantObjId.toString() === req.user._id.toString()) return;
+    console.log(participantObjId);
 
     mountNewChatEvent(
       req,
-      SocketEventEnum.NEW_CHAT_EVENT,
+      SocketEventEnum.NEW_MESSAGE_RECEIVED_EVENT,
       messageWithSender[0],
       participantObjId.toString()
     );

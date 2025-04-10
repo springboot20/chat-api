@@ -13,11 +13,7 @@ router.route("/").get(chatController.getAllChats);
 
 router
   .route("/create-chat/:receiverId")
-  .post(
-    validate,
-    mongoPathVariableValidation("receiverId"),
-    chatController.GetOrCreateChatMessage
-  );
+  .post(validate, mongoPathVariableValidation("receiverId"), chatController.GetOrCreateChatMessage);
 
 router.route("/available-users").get(chatController.searchAvailableUsers);
 
@@ -25,21 +21,9 @@ router.route("/group-chat").post(chatController.createGroupChat);
 
 router
   .route("/group-chat/:chatId")
-  .get(
-    mongoPathVariableValidation("chatId"),
-    validate,
-    chatController.getGroupChatDetails
-  )
-  .patch(
-    mongoPathVariableValidation("chatId"),
-    validate,
-    chatController.changeGroupName
-  )
-  .delete(
-    mongoPathVariableValidation("chatId"),
-    validate,
-    chatController.deleteGroupChat
-  );
+  .get(mongoPathVariableValidation("chatId"), validate, chatController.getGroupChatDetails)
+  .patch(mongoPathVariableValidation("chatId"), validate, chatController.changeGroupName)
+  .delete(mongoPathVariableValidation("chatId"), validate, chatController.deleteGroupChat);
 
 router
   .route("/group-chat/:chatId/:participantId")
@@ -58,16 +42,10 @@ router
 
 router
   .route("/leave/group-chat/:chatId")
-  .delete(
-    mongoPathVariableValidation("chatId"),
-    validate,
-    chatController.leaveGroupChat
-  );
+  .delete(mongoPathVariableValidation("chatId"), validate, chatController.leaveGroupChat);
 
-router
-  .route("/delete-one-on-one/:chatId")
-  .delete(
-    validate,
-    mongoPathVariableValidation("chatId"),
-    chatController.deleteOneOnOneChat
-  );
+router.route("/delete-one-on-one/:chatId").delete(
+  // validate,
+  // mongoPathVariableValidation("chatId"),
+  chatController.deleteOneOnOneChat
+);
