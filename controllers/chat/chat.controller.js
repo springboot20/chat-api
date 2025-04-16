@@ -135,9 +135,7 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
   ]);
 
   if (chat.length) {
-    return res
-      .status(StatusCodes.OK)
-      .json(new ApiResponse(StatusCodes.OK, "chat retrieved successfully", chat[0]));
+    return new ApiResponse(StatusCodes.OK, "chat retrieved successfully", chat[0]);
   }
 
   const newChatMessageInstanceWithSomeone = await chatModel.create({
@@ -170,13 +168,13 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
     mountNewChatEvent(req, SocketEventEnum.NEW_CHAT_EVENT, chatPayload, participant._id.toString());
   });
 
-  return res
-    .status(StatusCodes.OK)
-    .json(new ApiResponse(StatusCodes.OK, "Chat retrieved successfully", chatPayload));
+  return new ApiResponse(StatusCodes.OK, "Chat retrieved successfully", chatPayload);
 });
 
 export const createGroupChat = asyncHandler(async (req, res) => {
   const { name, participants } = req.body;
+
+  console.log(req.body)
 
   if (participants?.includes(req.user._id)) {
     throw new ApiError(
@@ -208,6 +206,8 @@ export const createGroupChat = asyncHandler(async (req, res) => {
 
   const groupChatPayload = createdGroupChat[0];
 
+  console.log(groupChatPayload)
+
   groupChatPayload?.participants?.forEach((participant) => {
     if (req.user._id.toString() === participant._id.toString()) return;
     mountNewChatEvent(
@@ -218,9 +218,7 @@ export const createGroupChat = asyncHandler(async (req, res) => {
     );
   });
 
-  return res
-    .status(StatusCodes.OK)
-    .json(new ApiResponse(StatusCodes.OK, "Chat retrieved successfully", groupChatPayload));
+  return new ApiResponse(StatusCodes.OK, "Chat retrieved successfully", groupChatPayload);
 });
 
 export const changeGroupName = asyncHandler(
@@ -365,9 +363,11 @@ export const deleteOneOnOneChat = asyncHandler(async (req, res) => {
     return participant.toString() !== req.user._id.toString();
   });
 
+  console.log(chatPayload);
+
   mountNewChatEvent(req, SocketEventEnum.LEAVE_CHAT_EVENT, chatPayload, otherParticipants[0]._id);
 
-  return new ApiResponse(StatusCodes.OK, "chat deleted successfully", deletedChat);
+  return new ApiResponse(StatusCodes.OK, "chat deleted successfully", {});
 });
 
 export const deleteGroupChat = asyncHandler(async (req, res) => {
@@ -534,7 +534,7 @@ export const searchAvailableUsers = asyncHandler(async (req, res) => {
     },
   ]);
 
-  return res.status(200).json(new ApiResponse(200, "Users fetched successfully", users));
+  return new ApiResponse(200, "Users fetched successfully", users);
 });
 
 export const getAllChats = asyncHandler(async (req, res) => {
@@ -552,7 +552,5 @@ export const getAllChats = asyncHandler(async (req, res) => {
     ...pipelineAggregation(),
   ]);
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, "User chats fetched successfully!", chats || []));
+  return new ApiResponse(200, "User chats fetched successfully!", chats || []);
 });

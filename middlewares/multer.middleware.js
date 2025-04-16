@@ -18,7 +18,7 @@ const storage = multer.diskStorage({
 
     callback(
       null,
-      `${filenameWithoutExttemplateension}${Date.now()}${Math.ceil(Math.random() * 1e6)}.${fileExtension}`
+      `${filenameWithoutExtension}${Date.now()}${Math.ceil(Math.random() * 1e6)}.${fileExtension}`
     );
   },
 });
