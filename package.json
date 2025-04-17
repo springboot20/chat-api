@@ -28,10 +28,10 @@
     "nodemailer": "^6.9.7",
     "nodemailer-express-handlebars": "^6.1.0",
     "passport": "^0.7.0",
+    "dotenv": "^16.3.1",
     "socket.io": "^4.7.2"
   },
   "devDependencies": {
-    "dotenv": "^16.3.1",
     "nodemon": "^3.0.2"
   }
 }
