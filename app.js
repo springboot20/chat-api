@@ -52,6 +52,15 @@ app.use(
     credentials: true,
   })
 );
+
+app.options(
+  "*",
+  cors({
+    origin: process.env.CORS_ORIGIN,
+    optionsSuccessStatus: 200,
+  })
+);
+
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
@@ -62,6 +71,12 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN);
+  res.setHeader("Access-Control-Allow-Methods", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,x-access-token");
+  next();
+});
 
 // APPS ROUTES
 app.use("/api/v1/auth/users", authRouter);
