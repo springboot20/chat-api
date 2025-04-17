@@ -42,8 +42,6 @@ const pipelineAggregation = () => {
 export const getAllChats = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
 
-  console.log(chatId, "line 45");
-
   const chat = await chatModel.findById(chatId);
 
   if (!chat) {
@@ -62,8 +60,6 @@ export const getAllChats = asyncHandler(async (req, res) => {
     },
     ...pipelineAggregation(),
   ]);
-
-  console.log(messages);
 
   return new ApiResponse(200, "Messages fetched successfully", messages || []);
 });
@@ -88,8 +84,10 @@ export const createMessage = asyncHandler(async (req, res) => {
 
   const attachments = [];
 
-  if (req.file && req.file?.attachments?.length > 0) {
-    req.file?.attachments?.map((attachment) => {
+  console.log("line 95: ", req.files?.attachments);
+
+  if (req.files && req.files?.attachments?.length > 0) {
+    req.files?.attachments?.map((attachment) => {
       attachments.push({
         url: getStaticFilePath(req, attachment.filename),
         localPath: getLocalFilePath(attachment.filename),
@@ -97,10 +95,13 @@ export const createMessage = asyncHandler(async (req, res) => {
     });
   }
 
+  console.log(attachments);
+
   const message = await messageModel.create({
-    content: content ?? "",
+    content: content || "",
     sender: new mongoose.Types.ObjectId(req.user._id),
     chat: new mongoose.Types.ObjectId(chatId),
+    attachments,
   });
 
   const updatedMessage = await chatModel.findByIdAndUpdate(

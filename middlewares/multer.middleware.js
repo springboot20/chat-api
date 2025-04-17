@@ -7,7 +7,7 @@ const storage = multer.diskStorage({
   filename: (req, file, callback) => {
     let fileExtension = '';
     if (file.originalname.split('.').length > 0) {
-      fileExtension = file.originalname.substring(file.originalname.lastIndexOf('.'));
+      fileExtension = file.originalname.substring(file.originalname.lastIndexOf('.') + 1);
     }
 
     const filenameWithoutExtension = file.originalname

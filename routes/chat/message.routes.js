@@ -17,6 +17,6 @@ router
     messageController.getAllChats
   )
   .post(
-    upload.fields([{ name: "attachments", maxCount: 6 }]),
+    upload.fields([{ name: "attachments" }]),
     messageController.createMessage
   );

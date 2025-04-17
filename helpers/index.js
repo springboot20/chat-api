@@ -1,7 +1,12 @@
-import fs from 'fs';
-import { userModel } from '../models/index.js';
-import { ApiError } from '../utils/ApiError.js';
-import { StatusCodes } from 'http-status-codes';
+import fs from "fs";
+import { userModel } from "../models/index.js";
+import { ApiError } from "../utils/ApiError.js";
+import { StatusCodes } from "http-status-codes";
+import path from "path";
+import url from "url";
+
+const __filename = url.fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  *
@@ -17,7 +22,7 @@ export const generateTokens = async (userId) => {
     const user = await userModel.findById(userId);
 
     // check if the user is not found in the database
-    if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'user does not exist in the database');
+    if (!user) throw new ApiError(StatusCodes.NOT_FOUND, "user does not exist in the database");
 
     const accessToken = user.generateAccessToken();
     const refreshToken = user.generateRefreshToken();
@@ -32,8 +37,8 @@ export const generateTokens = async (userId) => {
 };
 
 export const getStaticFilePath = (req, filename) =>
-  `${req.protocol}//:${req.get('host')}/${filename}`;
-export const getLocalFilePath = (filename) => `${__dirname}/public/uploads/${filename}`;
+  `${req.protocol}://${req.get("host")}/images/${filename}`;
+export const getLocalFilePath = (filename) => `${__dirname}/public/images/${filename}`;
 
 export const removeUnusedMulterFilesOnError = (req) => {
   try {
@@ -43,7 +48,6 @@ export const removeUnusedMulterFilesOnError = (req) => {
     if (multerFile) {
       fs.unlinkSync(getLocalFilePath(multerFile.filename));
     }
-    
   } catch (error) {
     console.log(` Error while removing image files : ${error}`);
   }
@@ -51,7 +55,7 @@ export const removeUnusedMulterFilesOnError = (req) => {
 
 export const removeLocalFile = (localPath) => {
   fs.unlink(localPath, (err) => {
-    if (err) console.log('Error occur while trying to remove file');
+    if (err) console.log("Error occur while trying to remove file");
     else console.log`Removed file:${localPath}`;
   });
 };
