@@ -27,43 +27,54 @@ const httpServer = http.createServer(app);
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-console.log(process.env.CORS_ORIGIN);
+// Get CORS origin from environment or use a fallback
+const corsOrigin = process.env.CORS_ORIGIN || "https://chat-application-wine-six.vercel.app";
+console.log("CORS Origin:", corsOrigin);
 
+// Configure CORS middleware first before any routes
+app.use(
+  cors({
+    origin: corsOrigin,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-access-token"],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
+  })
+);
+
+// Handle preflight OPTIONS requests
+app.options(
+  "*",
+  cors({
+    origin: corsOrigin,
+    optionsSuccessStatus: 204,
+  })
+);
+
+// Setup Socket.io with proper CORS
 const io = new Server(httpServer, {
   pingTimeout: 60000,
   cors: {
-    origin: process.env.CORS_ORIGIN,
-    methods: ["GET", "POST", "PUT", "PATCH"],
+    origin: corsOrigin,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    credentials: true,
   },
 });
 
 app.set("io", io);
 
+// Setup middleware
 app.use(express.json());
 app.use(bodyParser.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // Add OPTIONS for preflight
-    allowedHeaders: ["Content-Type", "Authorization", "x-access-token"],
-    credentials: true,
-  })
-);
 
-app.options(
-  "*",
-  cors({
-    origin: process.env.CORS_ORIGIN,
-    optionsSuccessStatus: 200,
-  })
-);
-
+// Configure session
 app.use(
   session({
-    secret: process.env.SESSION_SECRET,
+    secret: process.env.SESSION_SECRET || "fallback-secret-key",
     resave: false,
     saveUninitialized: false,
   })
@@ -71,24 +82,27 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Set CORS headers for all responses
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN);
-  res.setHeader("Access-Control-Allow-Methods", "*");
-  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.header("Access-Control-Allow-Origin", corsOrigin);
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-access-token"
+  );
+  res.header("Access-Control-Allow-Credentials", "true");
   next();
 });
 
-// APPS ROUTES
+// API Routes
 app.use("/api/v1/auth/users", authRouter);
 app.use("/api/v1/chat-app/chats", chatRouter);
 app.use("/api/v1/chat-app/messages", messageRouter);
 
-/**w
- * INITIALIZE SOCKET
- */
-
+// Initialize socket
 initializeSocket(io);
 
+// Error handling
 app.use(errorHandler);
 
 /**
@@ -108,7 +122,7 @@ mongoose.connection.on("connected", () => {
 });
 
 process.on("SIGINT", () => {
-  mongoose.connection.once("disconnect", () => {
+  mongoose.connection.close(() => {
     console.log("Mongodb disconnected..... ");
     process.exit(0);
   });
