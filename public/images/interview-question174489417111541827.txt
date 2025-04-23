@@ -1,0 +1,26 @@
+What wrong with this code
+What are 2 things wrong in this code
+
+class Question4 extends React.Component {
+	constructor(props) {
+    super(props)
+
+    this.state = {
+      message: 'Welcome to React world'
+    }
+  }
+  changeState(str) {
+  	this.setState({
+    	message: str
+    });
+    //Check message has changed to www
+    if (this.state.message == 'www') {
+    	alert('This is done correctly');
+    }
+  }
+  render() {
+    return <div>Hello {this.props.name}
+    <button onClick={() => this.changeState('www')}></button>
+    </div>;
+  }
+}

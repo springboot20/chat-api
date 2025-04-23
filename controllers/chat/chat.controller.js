@@ -264,7 +264,7 @@ export const changeGroupName = asyncHandler(
       mountNewChatEvent(req, SocketEventEnum.NEW_GROUP_NAME, chat, participant._id.toString());
     });
 
-    return new ApiResponse(StatusCodes.OK, "Group chat nae updated", chat[0]);
+    return new ApiResponse(StatusCodes.OK, "Group chat name updated", chat[0]);
   })
 );
 

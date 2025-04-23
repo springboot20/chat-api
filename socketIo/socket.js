@@ -63,12 +63,14 @@ const mountNewChatEvent = (req, event, payload, chatId) => {
 
 const mountTypingEvent = (socket) => {
   socket.on(SocketEventEnum.TYPING_EVENT, (chatId) => {
+    console.log(chatId)
     socket.in(chatId).emit(SocketEventEnum.TYPING_EVENT, chatId);
   });
 };
 
 const unMountTypingEvent = (socket) => {
   socket.on(SocketEventEnum.STOP_TYPING_EVENT, (chatId) => {
+    console.log(chatId)
     socket.in(chatId).emit(SocketEventEnum.STOP_TYPING_EVENT, chatId);
   });
 };
