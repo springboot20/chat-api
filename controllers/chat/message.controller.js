@@ -161,11 +161,6 @@ export const reactToMessage = asyncHandler(async (req, res) => {
     throw new ApiError(StatusCodes.NOT_FOUND, "Chat message not found");
   }
 
-  // Ensure the user is not reacting to their own message
-  if (chatMessage.sender.toString() === userId.toString()) {
-    throw new ApiError(StatusCodes.FORBIDDEN, "Cannot react to your own message");
-  }
-
   const newReaction = { emoji, userId };
   const existingReactions = chatMessage?.reactions || [];
 
