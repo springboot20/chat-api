@@ -1,4 +1,4 @@
-import { Schema, model } from 'mongoose';
+import { Schema, model } from "mongoose";
 
 const messageSchema = new Schema(
   {
@@ -16,15 +16,27 @@ const messageSchema = new Schema(
     },
     sender: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
     },
     chat: {
       type: Schema.Types.ObjectId,
-      ref: 'Chat',
+      ref: "Chat",
+    },
+    reactions: {
+      type: [
+        {
+          emoji: String,
+          userId: {
+            type: Schema.Types.ObjectId,
+            ref: "User",
+          },
+        },
+      ],
+      default: [],
     },
   },
   { timestamps: true }
 );
 
-const messageModel = model('ChatMessage', messageSchema);
+const messageModel = model("ChatMessage", messageSchema);
 export { messageModel };

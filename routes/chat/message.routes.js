@@ -11,12 +11,7 @@ router.use(verifyJWT);
 
 router
   .route("/:chatId")
-  .get(
-    mongoPathVariableValidation("chatId"),
-    validate,
-    messageController.getAllChats
-  )
-  .post(
-    upload.fields([{ name: "attachments" }]),
-    messageController.createMessage
-  );
+  .get(mongoPathVariableValidation("chatId"), validate, messageController.getAllChats)
+  .post(upload.fields([{ name: "attachments" }]), messageController.createMessage);
+
+router.route("/:chatId/:messageId/react").patch(messageController.reactToMessage);

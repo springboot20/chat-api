@@ -143,3 +143,72 @@ export const createMessage = asyncHandler(async (req, res) => {
   });
   return new ApiResponse(200, "Message created successfully", messagePayload);
 });
+
+export const reactToMessage = asyncHandler(async (req, res) => {
+  const { chatId, messageId } = req.params;
+  const { emoji } = req.body;
+  const userId = req.user._id;
+
+  const chat = await chatModel.findById(chatId);
+
+  if (!chat) {
+    throw new ApiError(StatusCodes.NOT_FOUND, "Chat not found");
+  }
+
+  const chatMessage = await messageModel.findOne({ chat: chat?._id, _id: messageId });
+
+  if (!chatMessage) {
+    throw new ApiError(StatusCodes.NOT_FOUND, "Chat message not found");
+  }
+
+  const newReaction = { emoji, userId };
+  const existingReactions = chatMessage?.reactions || [];
+
+  const updatedReactions = existingReactions.filter(
+    (reaction) => reaction.userId.toString() !== userId.toString()
+  );
+  updatedReactions.push(newReaction);
+
+  const updatedMessage = await messageModel.findByIdAndUpdate(
+    messageId,
+    {
+      $set: {
+        reactions: updatedReactions,
+      },
+    },
+    { new: true }
+  );
+
+  if (!updatedMessage) {
+    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "Failed to update message");
+  }
+
+  const messageWithSender = await messageModel.aggregate([
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(updatedMessage._id),
+      },
+    },
+    ...pipelineAggregation(),
+  ]);
+
+  if (!messageWithSender[0]) {
+    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "Failed to fetch updated message");
+  }
+
+  const messagePayload = messageWithSender[0];
+
+  console.log(updatedMessage);
+
+  chat.participants.forEach((participantObjId) => {
+    if (participantObjId.toString() === userId.toString()) return;
+    mountNewChatEvent(
+      req,
+      SocketEventEnum.REACTION_RECEIVED_EVENT,
+      messageWithSender[0],
+      participantObjId.toString()
+    );
+  });
+
+  return new ApiResponse(StatusCodes.OK, "Reaction added", messagePayload);
+});
