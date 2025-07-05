@@ -211,7 +211,7 @@ export const reactToMessage = asyncHandler(async (req, res) => {
   console.log(updatedMessage);
 
   chat.participants.forEach((participantObjId) => {
-    if (participantObjId.toString() === userId.toString()) return;
+    // if (participantObjId.toString() === userId.toString()) return;
     mountNewChatEvent(
       req,
       SocketEventEnum.REACTION_RECEIVED_EVENT,
