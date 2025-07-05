@@ -161,6 +161,11 @@ export const reactToMessage = asyncHandler(async (req, res) => {
     throw new ApiError(StatusCodes.NOT_FOUND, "Chat message not found");
   }
 
+  // Ensure the user is not reacting to their own message
+  if (chatMessage.sender.toString() === userId.toString()) {
+    throw new ApiError(StatusCodes.FORBIDDEN, "Cannot react to your own message");
+  }
+
   const newReaction = { emoji, userId };
   const existingReactions = chatMessage?.reactions || [];
 
@@ -169,11 +174,16 @@ export const reactToMessage = asyncHandler(async (req, res) => {
   );
   updatedReactions.push(newReaction);
 
+  const isGroupChat = chatMessage?.isGroupChat;
+  const finalReactions = isGroupChat
+    ? updatedReactions
+    : updatedReactions.filter((reaction) => reaction.userId.toString() === userId.toString());
+
   const updatedMessage = await messageModel.findByIdAndUpdate(
     messageId,
     {
       $set: {
-        reactions: updatedReactions,
+        reactions: finalReactions,
       },
     },
     { new: true }
