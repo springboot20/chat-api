@@ -24,6 +24,7 @@ export const SocketEventEnum = {
   LEAVE_CHAT_EVENT: "leaveChat",
   NEW_GROUP_NAME: "newGroupName",
   REACTION_RECEIVED_EVENT: "reaction-received",
+  CHAT_MESSAGE_DELETE_EVENT: "chat-message-delete",
 };
 
 export const AvailableSocketEvents = Object.values(SocketEventEnum);

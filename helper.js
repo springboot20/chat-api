@@ -1,6 +1,6 @@
 import fs from "fs";
-import { userModel } from "../models/index.js";
-import { ApiError } from "../utils/ApiError.js";
+import { userModel } from "./models/index.js";
+import { ApiError } from "./utils/ApiError.js";
 import { StatusCodes } from "http-status-codes";
 import path from "path";
 import url from "url";
@@ -56,7 +56,7 @@ export const removeUnusedMulterFilesOnError = (req) => {
 export const removeLocalFile = (localPath) => {
   fs.unlink(localPath, (err) => {
     if (err) console.log("Error occur while trying to remove file");
-    else console.log`Removed file:${localPath}`;
+    else console.log(`Removed file:${localPath}`);
   });
 };
 

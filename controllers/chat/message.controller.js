@@ -2,7 +2,7 @@ import { StatusCodes } from "http-status-codes";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { chatModel, messageModel } from "../../models/index.js";
-import { getLocalFilePath, getStaticFilePath } from "../../helpers/index.js";
+import { getLocalFilePath, getStaticFilePath, removeLocalFile } from "../../helper.js";
 import mongoose from "mongoose";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { mountNewChatEvent } from "../../socketIo/socket.js";
@@ -209,11 +209,66 @@ export const reactToMessage = asyncHandler(async (req, res) => {
     // if (participantObjId.toString() === userId.toString()) return;
     mountNewChatEvent(
       req,
-      SocketEventEnum.REACTION_RECEIVED_EVENT,
+      SocketEventEnum.NEW_MESSAGE_RECEIVED_EVENT,
       messageWithSender[0],
       participantObjId.toString()
     );
   });
 
   return new ApiResponse(StatusCodes.OK, "Reaction added", messagePayload);
+});
+
+export const deleteChatMessage = asyncHandler(async (req, res) => {
+  const { messageId, chatId } = req.params;
+  // const userId = req.user._id;
+
+  const chat = await chatModel.findById(chatId);
+
+  if (!chat) {
+    throw new ApiError(StatusCodes.NOT_FOUND, "Chat not found");
+  }
+
+  const message = await messageModel.findOne({ chat: chat?._id, _id: messageId });
+
+  if (!message) {
+    throw new ApiError(StatusCodes.NOT_FOUND, "Chat message not found");
+  }
+
+  const chatAggregate = await chatModel.aggregate([
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(chatId),
+      },
+    },
+    ...pipelineAggregation(),
+  ]);
+
+  const chatPayload = chatAggregate[0];
+
+  if (!chatPayload) throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "Internal server error");
+
+  message.attachments.map((file) => {
+    removeLocalFile(file.localPath);
+  });
+
+  const updatedMessage = await messageModel.findOneAndUpdate(
+    { _id: messageId, chat: chatId },
+    {
+      $set: {
+        isDeleted: true,
+      },
+    },
+    { new: true }
+  );
+
+  chatPayload?.participants.forEach((participantObjId) => {
+    mountNewChatEvent(
+      req,
+      SocketEventEnum.CHAT_MESSAGE_DELETE_EVENT,
+      updatedMessage,
+      participantObjId.toString()
+    );
+  });
+
+  return new ApiResponse(StatusCodes.OK, "Message deleted successfully", {});
 });

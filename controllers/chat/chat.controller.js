@@ -2,7 +2,7 @@ import { StatusCodes } from "http-status-codes";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { chatModel, messageModel, userModel } from "../../models/index.js";
-import { removeLocalFile } from "../../helpers/index.js";
+import { removeLocalFile } from "../../helper.js";
 import { withTransaction } from "../../middlewares/mongoose.middleware.js";
 import mongoose from "mongoose";
 import { asyncHandler } from "../../utils/asyncHandler.js";
@@ -174,7 +174,7 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
 export const createGroupChat = asyncHandler(async (req, res) => {
   const { name, participants } = req.body;
 
-  console.log(req.body)
+  console.log(req.body);
 
   if (participants?.includes(req.user._id)) {
     throw new ApiError(
@@ -206,7 +206,7 @@ export const createGroupChat = asyncHandler(async (req, res) => {
 
   const groupChatPayload = createdGroupChat[0];
 
-  console.log(groupChatPayload)
+  console.log(groupChatPayload);
 
   groupChatPayload?.participants?.forEach((participant) => {
     if (req.user._id.toString() === participant._id.toString()) return;

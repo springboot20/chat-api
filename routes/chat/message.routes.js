@@ -15,3 +15,5 @@ router
   .post(upload.fields([{ name: "attachments" }]), messageController.createMessage);
 
 router.route("/:chatId/:messageId/react").patch(messageController.reactToMessage);
+
+router.route("/:chatId/:messageId/delete").delete(messageController.deleteChatMessage);

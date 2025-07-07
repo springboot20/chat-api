@@ -3,7 +3,7 @@ import { chatController } from "../../controllers/index.js";
 import { validate } from "../../validation/validate.middleware.js";
 import { verifyJWT } from "../../middlewares/auth.middleware.js";
 import { mongoPathVariableValidation } from "../../validation/mongo/mongoId.validators.js";
-import { removeUnusedMulterFilesOnError } from "../../helpers/index.js";
+import { removeUnusedMulterFilesOnError } from "../../helper.js";
 
 export const router = Router();
 

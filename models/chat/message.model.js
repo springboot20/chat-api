@@ -22,6 +22,10 @@ const messageSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "Chat",
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
     reactions: {
       type: [
         {
