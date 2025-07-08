@@ -66,7 +66,7 @@ export const getAllChats = asyncHandler(async (req, res) => {
 
 export const createMessage = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
-  const { content } = req.body;
+  const { content, mentions = [] } = req.body;
 
   if (!content) {
     throw new ApiError(StatusCodes.NOT_FOUND, "Message content or file attachments is required");
@@ -95,13 +95,16 @@ export const createMessage = asyncHandler(async (req, res) => {
     });
   }
 
-  console.log(attachments);
+  console.log(JSON.parse(mentions));
+  const parsedMentions = typeof mentions === "string" ? JSON.parse(mentions) : mentions;
+  console.log(parsedMentions);
 
   const message = await messageModel.create({
     content: content || "",
     sender: new mongoose.Types.ObjectId(req.user._id),
     chat: new mongoose.Types.ObjectId(chatId),
     attachments,
+    mentions: Array.isArray(parsedMentions) ? parsedMentions : [],
   });
 
   const updatedMessage = await chatModel.findByIdAndUpdate(

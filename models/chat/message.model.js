@@ -5,6 +5,23 @@ const messageSchema = new Schema(
     content: {
       type: String,
     },
+    mentions: {
+      type: [
+        {
+          userId: {
+            type: Schema.Types.ObjectId,
+            ref: "User",
+          },
+          position: {
+            type: Number,
+          },
+          username: {
+            type: String,
+          },
+        },
+      ],
+      default: [],
+    },
     attachments: {
       type: [
         {
