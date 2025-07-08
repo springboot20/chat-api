@@ -212,8 +212,8 @@ export const reactToMessage = asyncHandler(async (req, res) => {
     // if (participantObjId.toString() === userId.toString()) return;
     mountNewChatEvent(
       req,
-      SocketEventEnum.NEW_MESSAGE_RECEIVED_EVENT,
-      messageWithSender[0],
+      SocketEventEnum.REACTION_RECEIVED_EVENT,
+      messagePayload,
       participantObjId.toString()
     );
   });
