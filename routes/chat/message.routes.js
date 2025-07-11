@@ -14,6 +14,10 @@ router
   .get(mongoPathVariableValidation("chatId"), validate, messageController.getAllChats)
   .post(upload.fields([{ name: "attachments" }]), messageController.createMessage);
 
+router
+  .route("/:chatId/:messageId/reply")
+  .patch(upload.fields([{ name: "attachments" }]), messageController.replyToMessage);
+
 router.route("/:chatId/:messageId/react").patch(messageController.reactToMessage);
 
 router.route("/:chatId/:messageId/delete").delete(messageController.deleteChatMessage);

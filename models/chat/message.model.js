@@ -55,6 +55,10 @@ const messageSchema = new Schema(
       ],
       default: [],
     },
+    replyId: {
+      type: Schema.Types.ObjectId,
+      ref: "ChatMessage",
+    },
   },
   { timestamps: true }
 );
