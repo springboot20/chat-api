@@ -118,10 +118,6 @@ export const createMessage = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
   const { content, mentions = [] } = req.body;
 
-  if (!content) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Message content or file attachments is required");
-  }
-
   const chat = await chatModel.findById(chatId);
 
   if (!chat) {
@@ -319,16 +315,39 @@ export const deleteChatMessage = asyncHandler(async (req, res) => {
     { new: true }
   );
 
+  const messageWithSender = await messageModel.aggregate([
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(message._id),
+      },
+    },
+    {
+      $lookup: {
+        from: "messages",
+        localField: "replyId",
+        foreignField: "_id",
+        as: "repliedMessage",
+      },
+    },
+    ...pipelineAggregation(),
+  ]);
+
+  const messagePayload = messageWithSender[0];
+  console.log(messageWithSender);
+
+  if (!messagePayload)
+    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "internal server error");
+
   chatPayload?.participants.forEach((participantObjId) => {
     mountNewChatEvent(
       req,
       SocketEventEnum.CHAT_MESSAGE_DELETE_EVENT,
-      updatedMessage,
+      messagePayload,
       participantObjId.toString()
     );
   });
 
-  return new ApiResponse(StatusCodes.OK, "Message deleted successfully", {});
+  return new ApiResponse(StatusCodes.OK, "Message deleted successfully", messagePayload);
 });
 
 export const replyToMessage = asyncHandler(async (req) => {
