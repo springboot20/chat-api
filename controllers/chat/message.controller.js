@@ -431,5 +431,5 @@ export const replyToMessage = asyncHandler(async (req) => {
     );
   });
 
-  return new ApiResponse(StatusCodes.OK, "replied to message successfully", {});
+  return new ApiResponse(StatusCodes.OK, "replied to message successfully", messagePayload);
 });
