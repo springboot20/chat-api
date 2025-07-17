@@ -12,7 +12,10 @@ const initializeSocket = (io) => {
         throw new ApiError(401, "Un-authentication failed, Token is invalid", []);
       }
 
-      let authDecodedToken = validateToken(authorization.tokens?.accessToken, process.env.ACCESS_TOKEN_SECRET);
+      let authDecodedToken = validateToken(
+        authorization.tokens?.accessToken,
+        process.env.ACCESS_TOKEN_SECRET
+      );
 
       let dToken = authDecodedToken;
 
@@ -54,6 +57,8 @@ const initializeSocket = (io) => {
 const mountJoinChatEvent = (socket) => {
   socket.on(SocketEventEnum.JOIN_CHAT_EVENT, (chatId) => {
     socket.join(chatId);
+
+    console.log(chatId);
   });
 };
 
@@ -63,14 +68,14 @@ const mountNewChatEvent = (req, event, payload, chatId) => {
 
 const mountTypingEvent = (socket) => {
   socket.on(SocketEventEnum.TYPING_EVENT, (chatId) => {
-    console.log(chatId)
+    console.log(chatId);
     socket.in(chatId).emit(SocketEventEnum.TYPING_EVENT, chatId);
   });
 };
 
 const unMountTypingEvent = (socket) => {
   socket.on(SocketEventEnum.STOP_TYPING_EVENT, (chatId) => {
-    console.log(chatId)
+    console.log(chatId);
     socket.in(chatId).emit(SocketEventEnum.STOP_TYPING_EVENT, chatId);
   });
 };

@@ -221,52 +221,55 @@ export const createGroupChat = asyncHandler(async (req, res) => {
   return new ApiResponse(StatusCodes.OK, "Chat retrieved successfully", groupChatPayload);
 });
 
-export const changeGroupName = asyncHandler(
-  withTransaction(async (req, res, session) => {
-    const { name } = req.body;
-    const { chatId } = req.params;
+export const changeGroupName = asyncHandler(async (req, res) => {
+  const { name } = req.body;
+  const { chatId } = req.params;
 
-    const groupChat = await chatModel.findOne({
-      _id: new mongoose.Types(chatId),
-      isGroupChat: true,
-    });
+  const groupChat = await chatModel.findOne({
+    _id: new mongoose.Types.ObjectId(chatId),
+    isGroupChat: true,
+  });
 
-    if (!groupChat) throw new ApiError(StatusCodes.NOT_FOUND, "Chat does not exists");
-    if (groupChat._id.toString() === req.user._id.toString()) {
-      throw new ApiError(StatusCodes.NOT_FOUND, "Not an Admin");
-    }
+  if (!groupChat) throw new ApiError(StatusCodes.NOT_FOUND, "Chat does not exists");
+  if (groupChat._id.toString() === req.user._id.toString()) {
+    throw new ApiError(StatusCodes.NOT_FOUND, "Not an Admin");
+  }
 
-    const updatedChat = await chatModel.findByIdAndUpdate(
-      chatId,
-      {
-        $set: {
-          name: name,
-        },
+  const updatedChat = await chatModel.findByIdAndUpdate(
+    chatId,
+    {
+      $set: {
+        name: name,
       },
-      { new: true }
+    },
+    { new: true }
+  );
+
+  await updatedChat.save();
+
+  const chat = await chatModel.aggregate([
+    {
+      $match: {
+        _id: updatedChat._id,
+        isGroupChat: true,
+      },
+    },
+    ...pipelineAggregation(),
+  ]);
+
+  const updatedChatPayload = chat[0];
+
+  updatedChatPayload.participants.forEach((participant) => {
+    mountNewChatEvent(
+      req,
+      SocketEventEnum.NEW_GROUP_NAME,
+      updatedChatPayload,
+      participant._id.toString()
     );
+  });
 
-    await updatedChat.save({ session });
-
-    const chat = await chatModel.aggregate([
-      {
-        $match: {
-          _id: updatedChat._id,
-          isGroupChat: true,
-        },
-      },
-      ...pipelineAggregation(),
-    ]);
-
-    const updatedChatPayload = chat[0];
-
-    updatedChatPayload.participants.forEach((participant) => {
-      mountNewChatEvent(req, SocketEventEnum.NEW_GROUP_NAME, chat, participant._id.toString());
-    });
-
-    return new ApiResponse(StatusCodes.OK, "Group chat name updated", chat[0]);
-  })
-);
+  return new ApiResponse(StatusCodes.OK, "Group chat name updated", chat[0]);
+});
 
 export const getGroupChatDetails = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
