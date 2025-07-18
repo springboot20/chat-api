@@ -262,8 +262,6 @@ export const changeGroupName = asyncHandler(async (req, res) => {
   const updatedChatPayload = chat[0];
 
   updatedChatPayload.participants.forEach((participant) => {
-    if (req.user._id.toString() === participant._id.toString()) return;
-
     mountNewChatEvent(
       req,
       SocketEventEnum.NEW_GROUP_NAME,
