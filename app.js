@@ -62,6 +62,9 @@ const io = new Server(httpServer, {
   },
 });
 
+// Initialize socket
+initializeSocket(io);
+
 app.set("io", io);
 
 // Setup middleware
@@ -98,9 +101,6 @@ app.use((req, res, next) => {
 app.use("/api/v1/auth/users", authRouter);
 app.use("/api/v1/chat-app/chats", chatRouter);
 app.use("/api/v1/chat-app/messages", messageRouter);
-
-// Initialize socket
-initializeSocket(io);
 
 // Error handling
 app.use(errorHandler);
