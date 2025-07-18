@@ -4,23 +4,41 @@ import { validateToken } from "../utils/jwt.js";
 import { SocketEventEnum } from "../constants/constants.js";
 
 const initializeSocket = (io) => {
+  console.log(io);
   return io.on("connection", async (socket) => {
-    const authorization = socket?.handshake?.auth;
-
     try {
-      if (!authorization.tokens) {
-        throw new ApiError(401, "Un-authentication failed, Token is invalid", []);
+      const authorization = socket?.handshake?.auth ?? {};
+      // Check for token in multiple possible locations
+      const token = authorization.tokens?.accessToken;
+
+      if (!token) {
+        socket.emit(SocketEventEnum.SOCKET_ERROR_EVENT, "Authentication failed, Token is missing");
+        socket.disconnect(true);
+        return;
       }
 
-      let authDecodedToken = validateToken(
-        authorization.tokens?.accessToken,
-        process.env.ACCESS_TOKEN_SECRET
-      );
+      let decodedToken;
+      try {
+        decodedToken = validateToken(token, process.env.ACCESS_TOKEN_SECRET);
+      } catch (tokenError) {
+        console.error("❌ Token validation failed:", tokenError.message);
+        socket.emit(SOCKET_EVENTS.SOCKET_ERROR_EVENT, "Authentication failed: Invalid token");
+        socket.disconnect(true);
+        return;
+      }
 
-      let dToken = authDecodedToken;
+      if (!decodedToken || !decodedToken._id) {
+        console.error("❌ Invalid token payload");
+        socket.emit(
+          SOCKET_EVENTS.SOCKET_ERROR_EVENT,
+          "Authentication failed: Invalid token payload"
+        );
+        socket.disconnect(true);
+        return;
+      }
 
       const user = await userModel
-        .findById(dToken?._id)
+        .findById(decodedToken?._id)
         .select("-password -refreshToken -emailVerificationToken -emailVerificationExpiry");
 
       if (!user) {
@@ -28,6 +46,7 @@ const initializeSocket = (io) => {
       }
 
       socket.user = user;
+      socket.userId = user?._id;
       socket.join(user?._id.toString());
       socket.emit(SocketEventEnum.CONNECTED_EVENT);
 
@@ -39,11 +58,24 @@ const initializeSocket = (io) => {
       mountNewChatEvent(socket);
       mountJoinChatEvent(socket);
 
+      socket.on("disconnect", (reason) => {
+        console.log(`❌ User ${user.username} disconnected: ${reason}`);
+
+        try {
+          // Leave all rooms
+          socket.leave(socket.userId);
+        } catch (error) {
+          console.error("❌ Error during disconnect cleanup:", error);
+        }
+      });
+
       socket.on(SocketEventEnum.DISCONNECT_EVENT, () => {
         console.log(`user disconnect from socket : ${socket.user?._id.toString()}`);
         if (socket.user?._id) {
           socket.leave(socket.user?._id);
         }
+
+        socket.emit(SOCKET_EVENTS.DISCONNECTED_EVENT);
       });
     } catch (error) {
       socket.emit(
@@ -57,26 +89,27 @@ const initializeSocket = (io) => {
 const mountJoinChatEvent = (socket) => {
   socket.on(SocketEventEnum.JOIN_CHAT_EVENT, (chatId) => {
     socket.join(chatId);
-
-    console.log(chatId);
   });
 };
 
 const mountNewChatEvent = (req, event, payload, chatId) => {
-  return req.app.get("io").in(chatId).emit(event, payload);
+  if (req.app.get("io")) {
+    const io = req.app.get("io");
+    return io.in(chatId).emit(event, payload);
+  }
 };
 
 const mountTypingEvent = (socket) => {
-  socket.on(SocketEventEnum.TYPING_EVENT, (chatId) => {
-    console.log(chatId);
-    socket.in(chatId).emit(SocketEventEnum.TYPING_EVENT, chatId);
+  socket.on(SocketEventEnum.TYPING_EVENT, (data) => {
+    console.log("start typing data: ", data);
+    socket.in(data.chatId).emit(SocketEventEnum.TYPING_EVENT, data);
   });
 };
 
 const unMountTypingEvent = (socket) => {
-  socket.on(SocketEventEnum.STOP_TYPING_EVENT, (chatId) => {
-    console.log(chatId);
-    socket.in(chatId).emit(SocketEventEnum.STOP_TYPING_EVENT, chatId);
+  socket.on(SocketEventEnum.STOP_TYPING_EVENT, (data) => {
+    console.log("stop typing data: ", data);
+    socket.in(data.chatId).emit(SocketEventEnum.STOP_TYPING_EVENT, data);
   });
 };
 export { initializeSocket, mountNewChatEvent };
