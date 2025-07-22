@@ -7,7 +7,7 @@ import { StatusCodes } from 'http-status-codes';
 
 passport.use(
   new LocalStrategy(async (username, email, password, next) => {
-    const user = await userModel
+    await userModel
       .findOne({ $or: [{ email }, { username }] })
       .then(async (user) => {
         if (user?.loginType !== LoginType.EMAIL_PASSWORD) {
