@@ -51,10 +51,6 @@ const messageSchema = new Schema(
             ref: "Message",
           },
           emoji: String,
-          userId: {
-            type: Schema.Types.ObjectId,
-            ref: "User",
-          },
           userIds: {
             type: [
               {

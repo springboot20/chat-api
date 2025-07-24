@@ -276,102 +276,98 @@ export const reactToMessage = asyncHandler(async (req) => {
   const { emoji } = req.body;
   const userId = req.user._id;
 
+  // Validate emoji input
+  if (!emoji || typeof emoji !== "string" || emoji.trim() === "") {
+    throw new ApiError(400, "Valid emoji is required");
+  }
+
+  // Find the chat
   const chat = await chatModel.findById(chatId);
-
   if (!chat) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Chat not found");
+    throw new ApiError(404, "Chat not found");
   }
 
-  const chatMessage = await messageModel.findOne({ chat: chat?._id, _id: messageId });
-
+  // Find the message
+  const chatMessage = await messageModel.findOne({ chat: chat._id, _id: messageId });
   if (!chatMessage) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Chat message not found");
+    throw new ApiError(404, "Chat message not found");
   }
 
-  const existingReactions = chatMessage?.reactions || [];
-  const isGroupChat = chat?.isGroupChat;
-
-  let updatedReactions;
+  const existingReactions = chatMessage.reactions || [];
+  const isGroupChat = chat.isGroupChat;
+  let updatedReactions = [...existingReactions];
 
   if (isGroupChat) {
-    const existingReactionIndex = existingReactions.findIndex(
-      (reaction) => reaction.emoji === emoji && reaction.userId.toString() === userId.toString()
-    );
+    // Find the reaction for the given emoji
+    const reactionIndex = updatedReactions.findIndex((reaction) => reaction.emoji === emoji);
 
-    if (existingReactionIndex !== -1) {
-      // Emoji reaction already exists
-      const existingReaction = existingReactions[existingReactionIndex];
-      const userAlreadyReacted = existingReaction.userIds.some(
+    // Remove user's ID from all other reactions
+    // updatedReactions = updatedReactions
+    //   .map((reaction) => ({
+    //     ...reaction,
+    //     userIds: reaction.userIds.filter(
+    //       (id) => id.toString() !== userId.toString() || reaction.emoji === emoji
+    //     ),
+    //   }))
+    //   .filter((reaction) => reaction.userIds.length > 0);
+
+    if (reactionIndex !== -1) {
+      const userAlreadyReacted = updatedReactions[reactionIndex].userIds.some(
         (id) => id.toString() === userId.toString()
       );
+      console.log("user already reacted: ", userAlreadyReacted);
 
-      console.log("existing reactions:", existingReactions);
-      console.log("user already reacted:", userAlreadyReacted);
-      console.log("existing user ids:", existingReaction.userIds);
+      // Emoji exists; check if user already reacted
+      if (!userAlreadyReacted) {
+        // User hasn't reacted with this emoji; add their ID
+        updatedReactions[reactionIndex].userIds.push(userId);
 
-      if (userAlreadyReacted) {
-        // Remove user's reaction from this emoji
-        existingReaction.userIds = existingReaction.userIds.filter((id) => {
-          return id.toString() !== userId.toString();
-        });
-
-        console.log(existingReaction?.userIds?.length === 0);
-
-        // If no users left for this emoji, remove the entire reaction
-        if (existingReaction.userIds.length === 0) {
-          updatedReactions = existingReactions?.filter(
-            (_, index) => index !== existingReactionIndex
-          );
-        } else {
-          // Update the userId field to be the first user (for backward compatibility)
-          existingReaction.userId = existingReactions.userIds[0];
-          existingReaction.messageId = messageId;
-          updatedReactions = [...existingReactions];
-        }
+        console.log(updatedReactions[reactionIndex]);
       } else {
-        // Add user to existing emoji reaction
-        existingReaction.userIds.push(userId);
-        existingReaction.messageId = messageId;
-        updatedReactions = [...existingReactions];
+        // User already reacted; remove their ID (toggle off)
+        updatedReactions[reactionIndex].userIds = updatedReactions[reactionIndex].userIds.filter(
+          (id) => id.toString() !== userId.toString()
+        );
+        // Remove reaction if no users remain
+        if (updatedReactions[reactionIndex].userIds.length === 0) {
+          updatedReactions.splice(reactionIndex, 1);
+        }
       }
     } else {
       // New emoji reaction
-      const newReaction = {
+      updatedReactions.push({
         emoji,
-        userId,
         userIds: [userId],
         messageId,
-      };
-      updatedReactions = [...existingReactions, newReaction];
+      });
     }
   } else {
-    // Private chat logic: One reaction per user, replace existing
-    const newReaction = { emoji, userId, userIds: [userId], messageId };
-
-    // Remove any existing reaction from this user
-    const filteredReactions = existingReactions.filter(
+    // Private chat: Replace user's existing reaction
+    updatedReactions = existingReactions.filter(
       (reaction) => reaction.userId.toString() !== userId.toString()
     );
 
-    updatedReactions = [...filteredReactions, newReaction];
+    updatedReactions.push({
+      emoji,
+      userIds: [userId],
+      messageId,
+    });
   }
 
-  // console.log("Updated reactions:", updatedReactions);
-
+  // Update the message with new reactions
   const updatedMessage = await messageModel.findByIdAndUpdate(
     messageId,
     {
-      $set: {
-        reactions: updatedReactions,
-      },
+      $set: { reactions: updatedReactions },
     },
     { new: true }
   );
 
   if (!updatedMessage) {
-    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "Failed to update message");
+    throw new ApiError(500, "Failed to update message");
   }
 
+  // Fetch the updated message with sender details
   const messageWithSender = await messageModel.aggregate([
     {
       $match: {
@@ -382,13 +378,13 @@ export const reactToMessage = asyncHandler(async (req) => {
   ]);
 
   if (!messageWithSender[0]) {
-    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "Failed to fetch updated message");
+    throw new ApiError(500, "Failed to fetch updated message");
   }
 
   const messagePayload = messageWithSender[0];
 
+  // Notify participants
   chat.participants.forEach((participantObjId) => {
-    // if (participantObjId.toString() === userId.toString()) return;
     mountNewChatEvent(
       req,
       SocketEventEnum.REACTION_RECEIVED_EVENT,
@@ -397,7 +393,7 @@ export const reactToMessage = asyncHandler(async (req) => {
     );
   });
 
-  return new ApiResponse(StatusCodes.OK, "Reaction added", messagePayload);
+  return new ApiResponse(200, "Reaction updated", messagePayload);
 });
 
 export const deleteChatMessage = asyncHandler(async (req, res) => {
