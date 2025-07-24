@@ -83,6 +83,84 @@ const pipelineAggregation = () => {
     },
     {
       $addFields: {
+        reactions: {
+          $map: {
+            input: "$reactions",
+            as: "reaction",
+            in: {
+              messageId: "$$reaction.messageId",
+              emoji: "$$reaction.emoji",
+              userId: "$$reaction.userId",
+              userIds: "$$reaction.userIds",
+            },
+          },
+        },
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        let: { reactionUserIds: "$reactions.userIds" },
+        as: "reactionUsers",
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $in: [
+                  "$_id",
+                  {
+                    $reduce: {
+                      input: "$$reactionUserIds",
+                      initialValue: [],
+                      in: { $setUnion: ["$$value", "$$this"] },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              username: 1,
+              avatar: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $addFields: {
+        reactions: {
+          $map: {
+            input: "$reactions",
+            as: "reaction",
+            in: {
+              messageId: "$$reaction.messageId",
+              emoji: "$$reaction.emoji",
+              userId: "$$reaction.userId",
+              userIds: "$$reaction.userIds",
+              users: {
+                $filter: {
+                  input: "$reactionUsers",
+                  as: "user",
+                  cond: {
+                    $in: ["$$user._id", "$$reaction.userIds"],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        reactionUsers: 0,
+      },
+    },
+    {
+      $addFields: {
         repliedMessage: { $first: "$repliedMessage" }, // Flatten the array
       },
     },
@@ -247,11 +325,13 @@ export const reactToMessage = asyncHandler(async (req) => {
         } else {
           // Update the userId field to be the first user (for backward compatibility)
           existingReaction.userId = existingReactions.userIds[0];
+          existingReaction.messageId = messageId;
           updatedReactions = [...existingReactions];
         }
       } else {
         // Add user to existing emoji reaction
         existingReaction.userIds.push(userId);
+        existingReaction.messageId = messageId;
         updatedReactions = [...existingReactions];
       }
     } else {
@@ -260,12 +340,13 @@ export const reactToMessage = asyncHandler(async (req) => {
         emoji,
         userId,
         userIds: [userId],
+        messageId,
       };
       updatedReactions = [...existingReactions, newReaction];
     }
   } else {
     // Private chat logic: One reaction per user, replace existing
-    const newReaction = { emoji, userId, userIds: [userId] };
+    const newReaction = { emoji, userId, userIds: [userId], messageId };
 
     // Remove any existing reaction from this user
     const filteredReactions = existingReactions.filter(

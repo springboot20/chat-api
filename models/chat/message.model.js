@@ -46,6 +46,10 @@ const messageSchema = new Schema(
     reactions: {
       type: [
         {
+          messageId: {
+            type: Schema.Types.ObjectId,
+            ref: "Message",
+          },
           emoji: String,
           userId: {
             type: Schema.Types.ObjectId,
