@@ -193,7 +193,7 @@ export const createMessage = asyncHandler(async (req, res) => {
   return new ApiResponse(200, "Message created successfully", messagePayload);
 });
 
-export const reactToMessage = asyncHandler(async (req, res) => {
+export const reactToMessage = asyncHandler(async (req) => {
   const { chatId, messageId } = req.params;
   const { emoji } = req.body;
   const userId = req.user._id;
@@ -210,35 +210,82 @@ export const reactToMessage = asyncHandler(async (req, res) => {
     throw new ApiError(StatusCodes.NOT_FOUND, "Chat message not found");
   }
 
-  const newReaction = { emoji, userId };
   const existingReactions = chatMessage?.reactions || [];
-
-  const updatedReactions = existingReactions.filter(
-    (reaction) => reaction.userId.toString() !== userId.toString()
-  );
-  updatedReactions.push(newReaction);
-
   const isGroupChat = chat?.isGroupChat;
 
-  console.log(isGroupChat);
+  let updatedReactions;
+
+  if (isGroupChat) {
+    const existingReactionIndex = existingReactions.findIndex(
+      (reaction) => reaction.emoji === emoji && reaction.userId.toString() === userId.toString()
+    );
+
+    if (existingReactionIndex !== -1) {
+      // Emoji reaction already exists
+      const existingReaction = existingReactions[existingReactionIndex];
+      const userAlreadyReacted = existingReaction.userIds.some(
+        (id) => id.toString() === userId.toString()
+      );
+
+      console.log("existing reactions:", existingReactions);
+      console.log("user already reacted:", userAlreadyReacted);
+      console.log("existing user ids:", existingReaction.userIds);
+
+      if (userAlreadyReacted) {
+        // Remove user's reaction from this emoji
+        existingReaction.userIds = existingReaction.userIds.filter((id) => {
+          return id.toString() !== userId.toString();
+        });
+
+        console.log(existingReaction?.userIds?.length === 0);
+
+        // If no users left for this emoji, remove the entire reaction
+        if (existingReaction.userIds.length === 0) {
+          updatedReactions = existingReactions?.filter(
+            (_, index) => index !== existingReactionIndex
+          );
+        } else {
+          // Update the userId field to be the first user (for backward compatibility)
+          existingReaction.userId = existingReactions.userIds[0];
+          updatedReactions = [...existingReactions];
+        }
+      } else {
+        // Add user to existing emoji reaction
+        existingReaction.userIds.push(userId);
+        updatedReactions = [...existingReactions];
+      }
+    } else {
+      // New emoji reaction
+      const newReaction = {
+        emoji,
+        userId,
+        userIds: [userId],
+      };
+      updatedReactions = [...existingReactions, newReaction];
+    }
+  } else {
+    // Private chat logic: One reaction per user, replace existing
+    const newReaction = { emoji, userId, userIds: [userId] };
+
+    // Remove any existing reaction from this user
+    const filteredReactions = existingReactions.filter(
+      (reaction) => reaction.userId.toString() !== userId.toString()
+    );
+
+    updatedReactions = [...filteredReactions, newReaction];
+  }
+
+  // console.log("Updated reactions:", updatedReactions);
 
   const updatedMessage = await messageModel.findByIdAndUpdate(
     messageId,
-    isGroupChat
-      ? {
-          $push: {
-            reactions: updatedReactions,
-          },
-        }
-      : {
-          $set: {
-            reactions: newReaction,
-          },
-        },
+    {
+      $set: {
+        reactions: updatedReactions,
+      },
+    },
     { new: true }
   );
-
-  console.log([...existingReactions, newReaction]);
 
   if (!updatedMessage) {
     throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "Failed to update message");

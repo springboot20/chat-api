@@ -51,6 +51,15 @@ const messageSchema = new Schema(
             type: Schema.Types.ObjectId,
             ref: "User",
           },
+          userIds: {
+            type: [
+              {
+                type: Schema.Types.ObjectId,
+                ref: "User",
+              },
+            ],
+            default: [],
+          },
         },
       ],
       default: [],
