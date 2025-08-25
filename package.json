@@ -5,8 +5,8 @@
   "main": "app.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "dev": "npx nodemon index.js"
+    "start": "node app.js",
+    "dev": "npx nodemon app.js"
   },
   "keywords": [],
   "author": "",
