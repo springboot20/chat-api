@@ -1,16 +1,35 @@
-import { Schema, model } from "mongoose";
+import { Schema, model } from 'mongoose';
 
 const messageSchema = new Schema(
   {
     content: {
       type: String,
     },
+
+    status: {
+      type: String,
+      enum: ['sent', 'delivered', 'seen'],
+      default: 'sent',
+    },
+    deliveredTo: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    seenBy: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+
     mentions: {
       type: [
         {
           userId: {
             type: Schema.Types.ObjectId,
-            ref: "User",
+            ref: 'User',
           },
           position: {
             type: Number,
@@ -33,11 +52,11 @@ const messageSchema = new Schema(
     },
     sender: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
     },
     chat: {
       type: Schema.Types.ObjectId,
-      ref: "Chat",
+      ref: 'Chat',
     },
     isDeleted: {
       type: Boolean,
@@ -48,14 +67,14 @@ const messageSchema = new Schema(
         {
           messageId: {
             type: Schema.Types.ObjectId,
-            ref: "Message",
+            ref: 'Message',
           },
           emoji: String,
           userIds: {
             type: [
               {
                 type: Schema.Types.ObjectId,
-                ref: "User",
+                ref: 'User',
               },
             ],
             default: [],
@@ -66,11 +85,11 @@ const messageSchema = new Schema(
     },
     replyId: {
       type: Schema.Types.ObjectId,
-      ref: "ChatMessage",
+      ref: 'ChatMessage',
     },
   },
   { timestamps: true }
 );
 
-const messageModel = model("ChatMessage", messageSchema);
+const messageModel = model('ChatMessage', messageSchema);
 export { messageModel };

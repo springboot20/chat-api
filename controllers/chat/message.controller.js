@@ -1,12 +1,12 @@
-import { StatusCodes } from "http-status-codes";
-import { ApiError } from "../../utils/ApiError.js";
-import { ApiResponse } from "../../utils/ApiResponse.js";
-import { chatModel, messageModel } from "../../models/index.js";
-import { getLocalFilePath, getStaticFilePath, removeLocalFile } from "../../helper.js";
-import mongoose from "mongoose";
-import { asyncHandler } from "../../utils/asyncHandler.js";
-import { mountNewChatEvent } from "../../socketIo/socket.js";
-import { SocketEventEnum } from "../../constants/constants.js";
+import { StatusCodes } from 'http-status-codes';
+import { ApiError } from '../../utils/ApiError.js';
+import { ApiResponse } from '../../utils/ApiResponse.js';
+import { chatModel, messageModel } from '../../models/index.js';
+import { getLocalFilePath, getStaticFilePath, removeLocalFile } from '../../helper.js';
+import mongoose from 'mongoose';
+import { asyncHandler } from '../../utils/asyncHandler.js';
+import { SocketEventEnum } from '../../constants/constants.js';
+import { isUserOnline, notifyChatParticipants, onlineUsers } from '../../socketIo/socket.js';
 
 /**
  * @return {mongoose.PipelineStage[]}
@@ -16,10 +16,10 @@ const pipelineAggregation = () => {
   return [
     {
       $lookup: {
-        from: "users",
-        localField: "sender",
-        foreignField: "_id",
-        as: "sender",
+        from: 'users',
+        localField: 'sender',
+        foreignField: '_id',
+        as: 'sender',
         pipeline: [
           {
             $project: {
@@ -33,23 +33,23 @@ const pipelineAggregation = () => {
     },
     {
       $addFields: {
-        sender: { $first: "$sender" },
+        sender: { $first: '$sender' },
       },
     },
     {
       $lookup: {
-        from: "chatmessages", // Reference the same collection
-        localField: "replyId",
-        foreignField: "_id",
-        as: "repliedMessage",
+        from: 'chatmessages', // Reference the same collection
+        localField: 'replyId',
+        foreignField: '_id',
+        as: 'repliedMessage',
         pipeline: [
           // Nested lookup for repliedMessage's sender
           {
             $lookup: {
-              from: "users",
-              localField: "sender",
-              foreignField: "_id",
-              as: "sender",
+              from: 'users',
+              localField: 'sender',
+              foreignField: '_id',
+              as: 'sender',
               pipeline: [
                 {
                   $project: {
@@ -63,7 +63,7 @@ const pipelineAggregation = () => {
           },
           {
             $addFields: {
-              sender: { $first: "$sender" },
+              sender: { $first: '$sender' },
             },
           },
           // Project only necessary fields for repliedMessage
@@ -85,13 +85,13 @@ const pipelineAggregation = () => {
       $addFields: {
         reactions: {
           $map: {
-            input: "$reactions",
-            as: "reaction",
+            input: '$reactions',
+            as: 'reaction',
             in: {
-              messageId: "$$reaction.messageId",
-              emoji: "$$reaction.emoji",
-              userId: "$$reaction.userId",
-              userIds: "$$reaction.userIds",
+              messageId: '$$reaction.messageId',
+              emoji: '$$reaction.emoji',
+              userId: '$$reaction.userId',
+              userIds: '$$reaction.userIds',
             },
           },
         },
@@ -99,21 +99,32 @@ const pipelineAggregation = () => {
     },
     {
       $lookup: {
-        from: "users",
-        let: { reactionUserIds: "$reactions.userIds" },
-        as: "reactionUsers",
+        from: 'users',
+        let: { reactionUserIds: '$reactions.userIds' },
+        as: 'reactionUsers',
         pipeline: [
           {
             $match: {
               $expr: {
                 $in: [
-                  "$_id",
+                  '$_id',
                   {
-                    $reduce: {
-                      input: "$$reactionUserIds",
-                      initialValue: [],
-                      in: { $setUnion: ["$$value", "$$this"] },
-                    },
+                    $ifNull: [
+                      {
+                        $reduce: {
+                          input: {
+                            $filter: {
+                              input: '$$reactionUserIds',
+                              as: 'userIdArray',
+                              cond: { $ne: ['$$userIdArray', null] },
+                            },
+                          },
+                          initialValue: [],
+                          in: { $setUnion: ['$$value', '$$this'] },
+                        },
+                      },
+                      [],
+                    ],
                   },
                 ],
               },
@@ -133,19 +144,19 @@ const pipelineAggregation = () => {
       $addFields: {
         reactions: {
           $map: {
-            input: "$reactions",
-            as: "reaction",
+            input: '$reactions',
+            as: 'reaction',
             in: {
-              messageId: "$$reaction.messageId",
-              emoji: "$$reaction.emoji",
-              userId: "$$reaction.userId",
-              userIds: "$$reaction.userIds",
+              messageId: '$$reaction.messageId',
+              emoji: '$$reaction.emoji',
+              userId: '$$reaction.userId',
+              userIds: '$$reaction.userIds',
               users: {
                 $filter: {
-                  input: "$reactionUsers",
-                  as: "user",
+                  input: '$reactionUsers',
+                  as: 'user',
                   cond: {
-                    $in: ["$$user._id", "$$reaction.userIds"],
+                    $in: ['$$user._id', '$$reaction.userIds'],
                   },
                 },
               },
@@ -161,7 +172,10 @@ const pipelineAggregation = () => {
     },
     {
       $addFields: {
-        repliedMessage: { $first: "$repliedMessage" }, // Flatten the array
+        repliedMessage: { $first: '$repliedMessage' }, // Flatten the array
+        status: { $ifNull: ['$status', 'sent'] },
+        deliveredTo: { $ifNull: ['$deliveredTo', []] },
+        seenBy: { $ifNull: ['$seenBy', []] },
       },
     },
   ];
@@ -173,11 +187,11 @@ export const getAllChats = asyncHandler(async (req, res) => {
   const chat = await chatModel.findById(chatId);
 
   if (!chat) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Chat not found");
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
   }
 
   if (!chat.participants.includes(req.user._id)) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, "You are not a participant of this chat");
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'You are not a participant of this chat');
   }
 
   const messages = await messageModel.aggregate([
@@ -189,7 +203,7 @@ export const getAllChats = asyncHandler(async (req, res) => {
     ...pipelineAggregation(),
   ]);
 
-  return new ApiResponse(200, "Messages fetched successfully", messages || []);
+  return new ApiResponse(200, 'Messages fetched successfully', { chatId, messages } || []);
 });
 
 export const createMessage = asyncHandler(async (req, res) => {
@@ -197,21 +211,14 @@ export const createMessage = asyncHandler(async (req, res) => {
   const { content, mentions = [] } = req.body;
 
   const chat = await chatModel.findById(chatId);
+  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
+  if (!chat.participants.includes(req.user._id))
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'You are not a participant of this chat');
 
-  if (!chat) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Chat not found");
-  }
-
-  if (!chat.participants.includes(req.user._id)) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, "You are not a participant of this chat");
-  }
-
+  // Handle attachments
   const attachments = [];
-
-  console.log("line 95: ", req.files?.attachments);
-
-  if (req.files && req.files?.attachments?.length > 0) {
-    req.files?.attachments?.map((attachment) => {
+  if (req.files?.attachments?.length > 0) {
+    req.files.attachments.forEach((attachment) => {
       attachments.push({
         url: getStaticFilePath(req, attachment.filename),
         localPath: getLocalFilePath(attachment.filename),
@@ -219,56 +226,169 @@ export const createMessage = asyncHandler(async (req, res) => {
     });
   }
 
-  console.log(JSON.parse(mentions));
-  const parsedMentions = typeof mentions === "string" ? JSON.parse(mentions) : mentions;
-  console.log(parsedMentions);
+  const parsedMentions = typeof mentions === 'string' ? JSON.parse(mentions) : mentions;
 
+  // 1️⃣ Create message
   const message = await messageModel.create({
-    content: content || "",
-    sender: new mongoose.Types.ObjectId(req.user._id),
-    chat: new mongoose.Types.ObjectId(chatId),
+    content: content || '',
+    sender: req.user._id,
+    chat: chatId,
     attachments,
     mentions: Array.isArray(parsedMentions) ? parsedMentions : [],
   });
 
-  const updatedMessage = await chatModel.findByIdAndUpdate(
-    chatId,
+  // 2️⃣ Update lastMessage
+  await chatModel.findByIdAndUpdate(chatId, { $set: { lastMessage: message._id } });
+
+  // 4️⃣ Aggregate message for payload
+  const [messagePayload] = await messageModel.aggregate([
+    { $match: { _id: message._id } },
+    ...pipelineAggregation(),
+  ]);
+
+  if (!messagePayload)
+    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Internal server error');
+
+  // 5️⃣ Aggregate updated chat
+  const [chatPayload] = await chatModel.aggregate([
+    { $match: { _id: new mongoose.Types.ObjectId(chatId) } },
     {
-      $set: {
-        lastMessage: message._id,
+      $lookup: {
+        from: 'users',
+        localField: 'participants',
+        foreignField: '_id',
+        as: 'participants',
+        pipeline: [{ $project: { password: 0, refreshToken: 0 } }],
       },
     },
+    {
+      $lookup: {
+        from: 'chatmessages',
+        localField: 'lastMessage',
+        foreignField: '_id',
+        as: 'lastMessage',
+        pipeline: [
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'sender',
+              foreignField: '_id',
+              as: 'sender',
+              pipeline: [{ $project: { username: 1, avatar: 1 } }],
+            },
+          },
+          { $addFields: { sender: { $first: '$sender' } } },
+        ],
+      },
+    },
+    { $addFields: { lastMessage: { $first: '$lastMessage' } } },
+  ]);
+
+  // 6️⃣ Emit events to the chat room
+  const io = req.app.get('io');
+
+  if (io) {
+    // 🚚 Delivered logic (online + inside chat room)
+    const deliveredNow = [];
+
+    for (const participantId of chat.participants) {
+      if (participantId.equals(req.user._id)) continue;
+
+      const sockets = onlineUsers.get(participantId.toString());
+      if (!sockets) continue;
+
+      for (const socketId of sockets) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket?.rooms.has(`chat:${chatId}`)) {
+          deliveredNow.push(participantId.toString());
+          break;
+        }
+      }
+    }
+
+    if (deliveredNow.length) {
+      await messageModel.findByIdAndUpdate(message._id, {
+        $addToSet: { deliveredTo: { $each: deliveredNow.map((id) => id.toString()) } },
+        $set: { status: 'delivered' },
+      });
+
+      messagePayload.status = 'delivered';
+      messagePayload.deliveredTo = deliveredNow.map((id) => id.toString());
+
+      await notifyChatParticipants({
+        io,
+        chat,
+        actorId: req.user._id,
+        event: SocketEventEnum.MESSAGE_DELIVERED_EVENT,
+        payload: {
+          chatId,
+          messageId: message._id,
+          deliveredTo: deliveredNow.map((id) => id.toString()),
+        },
+      });
+    }
+
+    await Promise.all([
+      notifyChatParticipants({
+        io,
+        chat,
+        actorId: req.user._id,
+        event: SocketEventEnum.NEW_MESSAGE_RECEIVED_EVENT,
+        payload: messagePayload,
+      }),
+
+      notifyChatParticipants({
+        io,
+        chat,
+        actorId: req.user._id,
+        event: SocketEventEnum.UPDATE_CHAT_LAST_MESSAGE_EVENT,
+        payload: chatPayload,
+      }),
+    ]);
+  }
+
+  return new ApiResponse(StatusCodes.OK, 'Message created successfully', messagePayload);
+});
+
+export const deleteChatMessage = asyncHandler(async (req, res) => {
+  const { messageId, chatId } = req.params;
+
+  const chat = await chatModel.findById(chatId);
+  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
+
+  const message = await messageModel.findOne({ chat: chat._id, _id: messageId });
+  if (!message) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat message not found');
+
+  // Remove local files if any
+  message.attachments.forEach((file) => removeLocalFile(file.localPath));
+
+  const updatedMessage = await messageModel.findOneAndUpdate(
+    { _id: messageId, chat: chatId },
+    { $set: { isDeleted: true } },
     { new: true }
   );
 
   const messageWithSender = await messageModel.aggregate([
-    {
-      $match: {
-        _id: new mongoose.Types.ObjectId(message._id),
-      },
-    },
+    { $match: { _id: new mongoose.Types.ObjectId(updatedMessage._id) } },
     ...pipelineAggregation(),
   ]);
 
   const messagePayload = messageWithSender[0];
+  if (!messagePayload) throw new ApiError(500, 'Internal server error');
 
-  console.log(messageWithSender);
+  // ✅ Emit delete event to chat room
+  const io = req.app.get('io');
+  if (io) {
+    await notifyChatParticipants({
+      io,
+      chat,
+      actorId: req.user._id,
+      event: SocketEventEnum.CHAT_MESSAGE_DELETE_EVENT,
+      payload: messagePayload,
+    });
+  }
 
-  if (!messagePayload)
-    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "internal server error");
-
-  updatedMessage.participants.forEach((participantObjId) => {
-    if (participantObjId.toString() === req.user._id.toString()) return;
-    console.log(participantObjId);
-
-    mountNewChatEvent(
-      req,
-      SocketEventEnum.NEW_MESSAGE_RECEIVED_EVENT,
-      messageWithSender[0],
-      participantObjId.toString()
-    );
-  });
-  return new ApiResponse(200, "Message created successfully", messagePayload);
+  return new ApiResponse(StatusCodes.OK, 'Message deleted successfully', messagePayload);
 });
 
 export const reactToMessage = asyncHandler(async (req) => {
@@ -276,223 +396,192 @@ export const reactToMessage = asyncHandler(async (req) => {
   const { emoji } = req.body;
   const userId = req.user._id;
 
-  // Validate emoji input
-  if (!emoji || typeof emoji !== "string" || emoji.trim() === "") {
-    throw new ApiError(400, "Valid emoji is required");
+  if (!emoji || typeof emoji !== 'string' || emoji.trim() === '') {
+    throw new ApiError(400, 'Valid emoji is required');
   }
 
-  // Find the chat
   const chat = await chatModel.findById(chatId);
-  if (!chat) {
-    throw new ApiError(404, "Chat not found");
-  }
+  if (!chat) throw new ApiError(404, 'Chat not found');
 
-  // Find the message
   const chatMessage = await messageModel.findOne({ chat: chat._id, _id: messageId });
-  if (!chatMessage) {
-    throw new ApiError(404, "Chat message not found");
-  }
+  if (!chatMessage) throw new ApiError(404, 'Chat message not found');
 
   const existingReactions = chatMessage.reactions || [];
   const isGroupChat = chat.isGroupChat;
   let updatedReactions = [...existingReactions];
 
   if (isGroupChat) {
-    // Find the reaction for the given emoji
-    const reactionIndex = updatedReactions.findIndex((reaction) => reaction.emoji === emoji);
+    // 🔹 GROUP CHAT: User can have only ONE reaction (toggle/replace)
 
-    // Remove user's ID from all other reactions
-    // updatedReactions = updatedReactions
-    //   .map((reaction) => ({
-    //     ...reaction,
-    //     userIds: reaction.userIds.filter(
-    //       (id) => id.toString() !== userId.toString() || reaction.emoji === emoji
-    //     ),
-    //   }))
-    //   .filter((reaction) => reaction.userIds.length > 0);
+    // Step 1: Remove user from ALL reactions first
+    updatedReactions = updatedReactions
+      .map((reaction) => ({
+        ...reaction,
+        userIds: reaction.userIds.filter((id) => id.toString() !== userId.toString()),
+      }))
+      .filter((reaction) => reaction.userIds.length > 0); // Remove empty reactions
 
-    if (reactionIndex !== -1) {
-      const userAlreadyReacted = updatedReactions[reactionIndex].userIds.some(
-        (id) => id.toString() === userId.toString()
-      );
-      console.log("user already reacted: ", userAlreadyReacted);
+    // Step 2: Check if user previously reacted with this SAME emoji
+    const userPreviouslyUsedThisEmoji = existingReactions.some(
+      (reaction) =>
+        reaction.emoji === emoji &&
+        reaction.userIds.some((id) => id.toString() === userId.toString())
+    );
 
-      // Emoji exists; check if user already reacted
-      if (!userAlreadyReacted) {
-        // User hasn't reacted with this emoji; add their ID
-        updatedReactions[reactionIndex].userIds.push(userId);
+    // Step 3: If NOT toggling off (different emoji or no previous reaction), add new reaction
+    if (!userPreviouslyUsedThisEmoji) {
+      // Check if this emoji already exists (from other users)
+      const existingEmojiIndex = updatedReactions.findIndex((r) => r.emoji === emoji);
 
-        console.log(updatedReactions[reactionIndex]);
+      if (existingEmojiIndex !== -1) {
+        // Emoji exists, add user to it
+        updatedReactions[existingEmojiIndex].userIds.push(userId);
       } else {
-        // User already reacted; remove their ID (toggle off)
-        updatedReactions[reactionIndex].userIds = updatedReactions[reactionIndex].userIds.filter(
-          (id) => id.toString() !== userId.toString()
-        );
-        // Remove reaction if no users remain
-        if (updatedReactions[reactionIndex].userIds.length === 0) {
-          updatedReactions.splice(reactionIndex, 1);
-        }
+        // New emoji, create it
+        updatedReactions.push({
+          emoji,
+          userIds: [userId],
+          messageId,
+        });
       }
-    } else {
-      // New emoji reaction
+    }
+    // If toggling off (same emoji), we already removed it in Step 1
+  } else {
+    // 🔹 ONE-ON-ONE CHAT: User can have only ONE reaction (toggle/replace)
+
+    // Step 1: Remove ALL reactions from this user
+    updatedReactions = existingReactions.filter(
+      (reaction) => !reaction.userIds.some((id) => id.toString() === userId.toString())
+    );
+
+    // Step 2: Check if user previously reacted with this SAME emoji
+    const userPreviouslyUsedThisEmoji = existingReactions.some(
+      (reaction) =>
+        reaction.emoji === emoji &&
+        reaction.userIds.some((id) => id.toString() === userId.toString())
+    );
+
+    // Step 3: If NOT toggling off (different emoji or no previous reaction), add new reaction
+    if (!userPreviouslyUsedThisEmoji) {
       updatedReactions.push({
         emoji,
         userIds: [userId],
         messageId,
       });
     }
-  } else {
-    // Private chat: Replace user's existing reaction
-    updatedReactions = existingReactions.filter(
-      (reaction) => reaction.userId.toString() !== userId.toString()
-    );
-
-    updatedReactions.push({
-      emoji,
-      userIds: [userId],
-      messageId,
-    });
+    // If toggling off (same emoji), we already removed it in Step 1
   }
 
-  // Update the message with new reactions
+  // Update the message in database
   const updatedMessage = await messageModel.findByIdAndUpdate(
     messageId,
-    {
-      $set: { reactions: updatedReactions },
-    },
+    { $set: { reactions: updatedReactions } },
     { new: true }
   );
 
-  if (!updatedMessage) {
-    throw new ApiError(500, "Failed to update message");
-  }
+  if (!updatedMessage) throw new ApiError(500, 'Failed to update message');
 
-  // Fetch the updated message with sender details
+  // Fetch updated message with populated data
   const messageWithSender = await messageModel.aggregate([
-    {
-      $match: {
-        _id: new mongoose.Types.ObjectId(updatedMessage._id),
-      },
-    },
+    { $match: { _id: new mongoose.Types.ObjectId(updatedMessage._id) } },
     ...pipelineAggregation(),
   ]);
 
-  if (!messageWithSender[0]) {
-    throw new ApiError(500, "Failed to fetch updated message");
-  }
+  if (!messageWithSender[0]) throw new ApiError(500, 'Failed to fetch updated message');
 
   const messagePayload = messageWithSender[0];
 
-  // Notify participants
-  chat.participants.forEach((participantObjId) => {
-    mountNewChatEvent(
-      req,
-      SocketEventEnum.REACTION_RECEIVED_EVENT,
-      messagePayload,
-      participantObjId.toString()
-    );
-  });
+  // Emit to all participants
+  const io = req.app.get('io');
+  if (io) {
+    const reactionPayload = {
+      chatId,
+      messageId: messagePayload._id.toString(),
+      reactions: messagePayload.reactions || [],
+    };
 
-  return new ApiResponse(200, "Reaction updated", messagePayload);
-});
+    console.log('🎭 Emitting reaction:', reactionPayload);
 
-export const deleteChatMessage = asyncHandler(async (req, res) => {
-  const { messageId, chatId } = req.params;
-  // const userId = req.user._id;
+    // Emit to ALL participants (including the person who reacted)
+    for (const participantId of chat.participants) {
+      const participantIdStr = participantId.toString();
+      const isOnline = isUserOnline(participantIdStr);
 
-  const chat = await chatModel.findById(chatId);
+      console.log(`  → ${participantIdStr}: ${isOnline ? 'ONLINE ✅' : 'OFFLINE ❌'}`);
 
-  if (!chat) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Chat not found");
+      if (isOnline) {
+        io.to(`user:${participantIdStr}`).emit(
+          SocketEventEnum.REACTION_RECEIVED_EVENT,
+          reactionPayload
+        );
+      }
+    }
+
+    // Update last message if needed
+    if (chat.lastMessage?.toString() === messageId) {
+      const [chatPayload] = await chatModel.aggregate([
+        { $match: { _id: new mongoose.Types.ObjectId(chatId) } },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'participants',
+            foreignField: '_id',
+            as: 'participants',
+            pipeline: [{ $project: { password: 0, refreshToken: 0 } }],
+          },
+        },
+        {
+          $lookup: {
+            from: 'chatmessages',
+            localField: 'lastMessage',
+            foreignField: '_id',
+            as: 'lastMessage',
+            pipeline: [
+              {
+                $lookup: {
+                  from: 'users',
+                  localField: 'sender',
+                  foreignField: '_id',
+                  as: 'sender',
+                  pipeline: [{ $project: { username: 1, avatar: 1 } }],
+                },
+              },
+              { $addFields: { sender: { $first: '$sender' } } },
+            ],
+          },
+        },
+        { $addFields: { lastMessage: { $first: '$lastMessage' } } },
+      ]);
+
+      if (chatPayload) {
+        for (const participantId of chat.participants) {
+          if (isUserOnline(participantId.toString())) {
+            io.to(`user:${participantId}`).emit(
+              SocketEventEnum.UPDATE_CHAT_LAST_MESSAGE_EVENT,
+              chatPayload
+            );
+          }
+        }
+      }
+    }
   }
 
-  const message = await messageModel.findOne({ chat: chat?._id, _id: messageId });
-
-  if (!message) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Chat message not found");
-  }
-
-  const chatAggregate = await chatModel.aggregate([
-    {
-      $match: {
-        _id: new mongoose.Types.ObjectId(chatId),
-      },
-    },
-    ...pipelineAggregation(),
-  ]);
-
-  const chatPayload = chatAggregate[0];
-
-  if (!chatPayload) throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "Internal server error");
-
-  message.attachments.map((file) => {
-    removeLocalFile(file.localPath);
-  });
-
-  const updatedMessage = await messageModel.findOneAndUpdate(
-    { _id: messageId, chat: chatId },
-    {
-      $set: {
-        isDeleted: true,
-      },
-    },
-    { new: true }
-  );
-
-  const messageWithSender = await messageModel.aggregate([
-    {
-      $match: {
-        _id: new mongoose.Types.ObjectId(message._id),
-      },
-    },
-    {
-      $lookup: {
-        from: "messages",
-        localField: "replyId",
-        foreignField: "_id",
-        as: "repliedMessage",
-      },
-    },
-    ...pipelineAggregation(),
-  ]);
-
-  const messagePayload = messageWithSender[0];
-  console.log(messageWithSender);
-
-  if (!messagePayload)
-    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "internal server error");
-
-  chatPayload?.participants.forEach((participantObjId) => {
-    mountNewChatEvent(
-      req,
-      SocketEventEnum.CHAT_MESSAGE_DELETE_EVENT,
-      messagePayload,
-      participantObjId.toString()
-    );
-  });
-
-  return new ApiResponse(StatusCodes.OK, "Message deleted successfully", messagePayload);
+  return new ApiResponse(200, 'Reaction updated', messagePayload);
 });
 
-export const replyToMessage = asyncHandler(async (req) => {
+export const replyToMessage = asyncHandler(async (req, res) => {
   const { chatId, messageId } = req.params;
   const { content, mentions = [] } = req.body;
 
   const chat = await chatModel.findById(chatId);
+  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
+  if (!chat.participants.includes(req.user._id))
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'You are not a participant of this chat');
 
-  if (!chat) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Chat not found");
-  }
-
-  if (!chat.participants.includes(req.user._id)) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, "You are not a participant of this chat");
-  }
-
+  // Handle attachments
   const attachments = [];
-  const parsedMentions = typeof mentions === "string" ? JSON.parse(mentions) : mentions;
-
-  if (req.files && req.files?.attachments?.length > 0) {
-    req.files?.attachments?.map((attachment) => {
+  if (req.files?.attachments?.length > 0) {
+    req.files.attachments.forEach((attachment) => {
       attachments.push({
         url: getStaticFilePath(req, attachment.filename),
         localPath: getLocalFilePath(attachment.filename),
@@ -500,60 +589,175 @@ export const replyToMessage = asyncHandler(async (req) => {
     });
   }
 
+  const parsedMentions = typeof mentions === 'string' ? JSON.parse(mentions) : mentions;
+
+  // 1️⃣ Create reply message
   const message = await messageModel.create({
-    content: content || "",
-    sender: new mongoose.Types.ObjectId(req.user._id),
-    chat: new mongoose.Types.ObjectId(chatId),
-    attachments,
+    content: content || '',
+    sender: req.user._id,
+    chat: chatId,
     replyId: messageId,
+    attachments,
     mentions: Array.isArray(parsedMentions) ? parsedMentions : [],
   });
 
-  const updatedMessage = await chatModel.findByIdAndUpdate(
-    chatId,
-    {
-      $set: {
-        lastMessage: message._id,
-      },
-    },
-    { new: true }
-  );
+  // 2️⃣ Update lastMessage
+  await chatModel.findByIdAndUpdate(chatId, {
+    $set: { lastMessage: message._id },
+  });
 
-  const messageWithSender = await messageModel.aggregate([
+  // 3️⃣ Aggregate reply message
+  const [messagePayload] = await messageModel.aggregate([
+    { $match: { _id: message._id } },
+    ...pipelineAggregation(),
+  ]);
+
+  if (!messagePayload)
+    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Internal server error');
+
+  // 4️⃣ Aggregate updated chat
+  const [chatPayload] = await chatModel.aggregate([
+    { $match: { _id: new mongoose.Types.ObjectId(chatId) } },
     {
-      $match: {
-        _id: new mongoose.Types.ObjectId(message._id),
+      $lookup: {
+        from: 'users',
+        localField: 'participants',
+        foreignField: '_id',
+        as: 'participants',
+        pipeline: [{ $project: { password: 0, refreshToken: 0 } }],
       },
     },
     {
       $lookup: {
-        from: "messages",
-        localField: "replyId",
-        foreignField: "_id",
-        as: "repliedMessage",
+        from: 'chatmessages',
+        localField: 'lastMessage',
+        foreignField: '_id',
+        as: 'lastMessage',
+        pipeline: [
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'sender',
+              foreignField: '_id',
+              as: 'sender',
+              pipeline: [{ $project: { username: 1, avatar: 1 } }],
+            },
+          },
+          { $addFields: { sender: { $first: '$sender' } } },
+        ],
       },
     },
-    ...pipelineAggregation(),
+    { $addFields: { lastMessage: { $first: '$lastMessage' } } },
   ]);
 
-  const messagePayload = messageWithSender[0];
+  // 5️⃣ Notify participants (ONLINE + OFFLINE SAFE)
+  const io = req.app.get('io');
 
-  console.log(messageWithSender);
+  if (io) {
+    // 🚚 Delivered logic (online + inside chat room)
+    const deliveredNow = [];
 
-  if (!messagePayload)
-    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "internal server error");
+    for (const participantId of chat.participants) {
+      if (participantId.equals(req.user._id)) continue;
 
-  updatedMessage.participants.forEach((participantObjId) => {
-    if (participantObjId.toString() === req.user._id.toString()) return;
-    console.log(participantObjId);
+      const sockets = onlineUsers.get(participantId.toString());
+      if (!sockets) continue;
 
-    mountNewChatEvent(
-      req,
-      SocketEventEnum.NEW_MESSAGE_RECEIVED_EVENT,
-      messagePayload,
-      participantObjId.toString()
-    );
+      for (const socketId of sockets) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket?.rooms.has(`chat:${chatId}`)) {
+          deliveredNow.push(participantId.toString());
+          break;
+        }
+      }
+    }
+
+    if (deliveredNow.length) {
+      await messageModel.findByIdAndUpdate(message._id, {
+        $addToSet: { deliveredTo: { $each: deliveredNow.map((id) => id.toString()) } },
+        $set: { status: 'delivered' },
+      });
+
+      messagePayload.status = 'delivered';
+      messagePayload.deliveredTo = deliveredNow.map((id) => id.toString());
+
+      await notifyChatParticipants({
+        io,
+        chat,
+        actorId: req.user._id,
+        event: SocketEventEnum.MESSAGE_DELIVERED_EVENT,
+        payload: {
+          chatId,
+          messageId: message._id,
+          deliveredTo: deliveredNow.map((id) => id.toString()),
+        },
+      });
+    }
+
+    await Promise.all([
+      notifyChatParticipants({
+        io,
+        chat,
+        actorId: req.user._id,
+        event: SocketEventEnum.NEW_MESSAGE_RECEIVED_EVENT,
+        payload: messagePayload,
+      }),
+
+      notifyChatParticipants({
+        io,
+        chat,
+        actorId: req.user._id,
+        event: SocketEventEnum.UPDATE_CHAT_LAST_MESSAGE_EVENT,
+        payload: chatPayload,
+      }),
+    ]);
+  }
+
+  return new ApiResponse(StatusCodes.OK, 'Replied to message successfully', messagePayload);
+});
+
+export const markMessagesAsSeen = asyncHandler(async (req, res) => {
+  const { chatId } = req.params;
+  const userId = req.user._id;
+
+  const chat = await chatModel.findById(chatId);
+  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
+
+  const isParticipant = chat.participants.some((p) => p.equals(userId));
+  if (!isParticipant) throw new ApiError(StatusCodes.UNAUTHORIZED, 'You are not a participant');
+
+  // find messages first (so we can emit messageIds)
+  const unseenMessages = await messageModel
+    .find({
+      chat: chatId,
+      sender: { $ne: userId },
+      seenBy: { $ne: userId },
+    })
+    .select('_id');
+
+  if (unseenMessages.length === 0) {
+    return new ApiResponse(StatusCodes.OK, 'No unseen messages');
+  }
+
+  const messageIds = unseenMessages.map((m) => m._id);
+
+  await messageModel.updateMany(
+    { _id: { $in: messageIds } },
+    { $addToSet: { seenBy: userId, deliveredTo: userId }, $set: { status: 'seen' } }
+  );
+
+  const io = req.app.get('io');
+  await notifyChatParticipants({
+    io,
+    chat,
+    actorId: userId,
+    event: SocketEventEnum.MESSAGE_SEEN_EVENT,
+    payload: {
+      chatId,
+      seenBy: userId,
+      messageIds,
+    },
   });
 
-  return new ApiResponse(StatusCodes.OK, "replied to message successfully", messagePayload);
+  return new ApiResponse(StatusCodes.OK, 'Messages marked as seen');
 });
