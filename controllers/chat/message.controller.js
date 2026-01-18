@@ -365,7 +365,7 @@ export const deleteChatMessage = asyncHandler(async (req, res) => {
   const updatedMessage = await messageModel.findOneAndUpdate(
     { _id: messageId, chat: chatId },
     { $set: { isDeleted: true } },
-    { new: true }
+    { new: true },
   );
 
   const messageWithSender = await messageModel.aggregate([
@@ -406,79 +406,74 @@ export const reactToMessage = asyncHandler(async (req) => {
   const chatMessage = await messageModel.findOne({ chat: chat._id, _id: messageId });
   if (!chatMessage) throw new ApiError(404, 'Chat message not found');
 
-  const existingReactions = chatMessage.reactions || [];
-  const isGroupChat = chat.isGroupChat;
-  let updatedReactions = [...existingReactions];
+  const existingReactions = [...chatMessage.reactions] || [];
 
-  if (isGroupChat) {
-    // 🔹 GROUP CHAT: User can have only ONE reaction (toggle/replace)
+  // 🔹 Step 1: Check if user previously reacted with this SAME emoji
+  const userPreviouslyUsedThisEmoji = existingReactions.some(
+    (reaction) =>
+      reaction.emoji === emoji &&
+      reaction.userIds.some((id) => id.toString() === userId.toString()),
+  );
 
-    // Step 1: Remove user from ALL reactions first
-    updatedReactions = updatedReactions
-      .map((reaction) => ({
-        ...reaction,
-        userIds: reaction.userIds.filter((id) => id.toString() !== userId.toString()),
-      }))
-      .filter((reaction) => reaction.userIds.length > 0); // Remove empty reactions
+  // 🔹 Step 2: Remove user from ALL reactions (user can only have one reaction)
+  let updatedReactions = existingReactions
+    .map((reaction) => {
+      const reactionDoc = reaction._doc || reaction;
+      return {
+        ...reactionDoc,
+        userIds: reactionDoc.userIds.filter((id) => id.toString() !== userId.toString()),
+      };
+    })
+    .filter((reaction) => reaction.userIds.length > 0); // Remove empty reactions
 
-    // Step 2: Check if user previously reacted with this SAME emoji
-    const userPreviouslyUsedThisEmoji = existingReactions.some(
-      (reaction) =>
-        reaction.emoji === emoji &&
-        reaction.userIds.some((id) => id.toString() === userId.toString())
-    );
+  // 🔹 Step 3: Consolidate duplicate emojis (this is the key fix!)
+  const emojiMap = new Map();
 
-    // Step 3: If NOT toggling off (different emoji or no previous reaction), add new reaction
-    if (!userPreviouslyUsedThisEmoji) {
-      // Check if this emoji already exists (from other users) in the CLEANED array
-      const existingEmojiIndex = updatedReactions.findIndex((r) => r.emoji === emoji);
+  for (const reaction of updatedReactions) {
+    const reactionDoc = reaction._doc || reaction;
+    const emojiKey = reactionDoc.emoji;
 
-      if (existingEmojiIndex !== -1) {
-        // Emoji exists, add user to it
-        updatedReactions[existingEmojiIndex].userIds.push(userId);
-      } else {
-        // New emoji, create it
-        updatedReactions.push({
-          emoji,
-          userIds: [userId],
-          messageId,
-        });
-      }
+    if (emojiMap.has(emojiKey)) {
+      // Merge userIds into existing emoji
+      const existing = emojiMap.get(emojiKey);
+      reactionDoc.userIds.forEach((userId) => {
+        const userIdStr = userId.toString();
+        if (!existing.userIds.some((id) => id.toString() === userIdStr)) {
+          existing.userIds.push(userId);
+        }
+      });
+    } else {
+      // New emoji
+      emojiMap.set(emojiKey, {
+        emoji: emojiKey,
+        userIds: [...reactionDoc.userIds],
+        messageId: reactionDoc.messageId || messageId,
+      });
     }
-  } else {
-    // 🔹 ONE-ON-ONE CHAT: User can have only ONE reaction (toggle/replace)
+  }
 
-    // Step 1: Remove user from ALL reactions first
-    updatedReactions = updatedReactions
-      .map((reaction) => ({
-        ...reaction,
-        userIds: reaction.userIds.filter((id) => id.toString() !== userId.toString()),
-      }))
-      .filter((reaction) => reaction.userIds.length > 0); // Remove empty reactions
+  updatedReactions = Array.from(emojiMap.values());
 
-    // Step 2: Check if user previously reacted with this SAME emoji
-    const userPreviouslyUsedThisEmoji = existingReactions.some(
-      (reaction) =>
-        reaction.emoji === emoji &&
-        reaction.userIds.some((id) => id.toString() === userId.toString())
-    );
+  // 🔹 Step 4: If NOT toggling off, add the user's reaction
+  if (!userPreviouslyUsedThisEmoji) {
+    const existingEmojiIndex = updatedReactions.findIndex((r) => r.emoji === emoji);
 
-    // Step 3: If NOT toggling off, add new reaction
-    if (!userPreviouslyUsedThisEmoji) {
-      // Check if this emoji already exists in the CLEANED array
-      const existingEmojiIndex = updatedReactions.findIndex((r) => r.emoji === emoji);
-
-      if (existingEmojiIndex !== -1) {
-        // Emoji exists, add user to it
+    if (existingEmojiIndex !== -1) {
+      // Emoji exists, add user to it
+      if (
+        !updatedReactions[existingEmojiIndex].userIds.some(
+          (id) => id.toString() === userId.toString(),
+        )
+      ) {
         updatedReactions[existingEmojiIndex].userIds.push(userId);
-      } else {
-        // New emoji, create it
-        updatedReactions.push({
-          emoji,
-          userIds: [userId],
-          messageId,
-        });
       }
+    } else {
+      // New emoji, create it
+      updatedReactions.push({
+        emoji,
+        userIds: [userId],
+        messageId,
+      });
     }
   }
 
@@ -486,7 +481,7 @@ export const reactToMessage = asyncHandler(async (req) => {
   const updatedMessage = await messageModel.findByIdAndUpdate(
     messageId,
     { $set: { reactions: updatedReactions } },
-    { new: true }
+    { new: true },
   );
 
   if (!updatedMessage) throw new ApiError(500, 'Failed to update message');
@@ -510,18 +505,14 @@ export const reactToMessage = asyncHandler(async (req) => {
       reactions: messagePayload.reactions || [],
     };
 
-    console.log('🎭 Emitting reaction:', reactionPayload);
-
     for (const participantId of chat.participants) {
       const participantIdStr = participantId.toString();
       const isOnline = isUserOnline(participantIdStr);
 
-      console.log(`  → ${participantIdStr}: ${isOnline ? 'ONLINE ✅' : 'OFFLINE ❌'}`);
-
       if (isOnline) {
         io.to(`user:${participantIdStr}`).emit(
           SocketEventEnum.REACTION_RECEIVED_EVENT,
-          reactionPayload
+          reactionPayload,
         );
       }
     }
@@ -566,7 +557,7 @@ export const reactToMessage = asyncHandler(async (req) => {
           if (isUserOnline(participantId.toString())) {
             io.to(`user:${participantId}`).emit(
               SocketEventEnum.UPDATE_CHAT_LAST_MESSAGE_EVENT,
-              chatPayload
+              chatPayload,
             );
           }
         }
@@ -576,6 +567,7 @@ export const reactToMessage = asyncHandler(async (req) => {
 
   return new ApiResponse(200, 'Reaction updated', messagePayload);
 });
+
 export const replyToMessage = asyncHandler(async (req, res) => {
   const { chatId, messageId } = req.params;
   const { content, mentions = [] } = req.body;
@@ -750,7 +742,7 @@ export const markMessagesAsSeen = asyncHandler(async (req, res) => {
 
   await messageModel.updateMany(
     { _id: { $in: messageIds } },
-    { $addToSet: { seenBy: userId, deliveredTo: userId }, $set: { status: 'seen' } }
+    { $addToSet: { seenBy: userId, deliveredTo: userId }, $set: { status: 'seen' } },
   );
 
   const io = req.app.get('io');
