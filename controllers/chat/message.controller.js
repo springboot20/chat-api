@@ -430,7 +430,7 @@ export const reactToMessage = asyncHandler(async (req) => {
 
     // Step 3: If NOT toggling off (different emoji or no previous reaction), add new reaction
     if (!userPreviouslyUsedThisEmoji) {
-      // Check if this emoji already exists (from other users)
+      // Check if this emoji already exists (from other users) in the CLEANED array
       const existingEmojiIndex = updatedReactions.findIndex((r) => r.emoji === emoji);
 
       if (existingEmojiIndex !== -1) {
@@ -445,14 +445,16 @@ export const reactToMessage = asyncHandler(async (req) => {
         });
       }
     }
-    // If toggling off (same emoji), we already removed it in Step 1
   } else {
     // 🔹 ONE-ON-ONE CHAT: User can have only ONE reaction (toggle/replace)
 
-    // Step 1: Remove ALL reactions from this user
-    updatedReactions = existingReactions.filter(
-      (reaction) => !reaction.userIds.some((id) => id.toString() === userId.toString())
-    );
+    // Step 1: Remove user from ALL reactions first
+    updatedReactions = updatedReactions
+      .map((reaction) => ({
+        ...reaction,
+        userIds: reaction.userIds.filter((id) => id.toString() !== userId.toString()),
+      }))
+      .filter((reaction) => reaction.userIds.length > 0); // Remove empty reactions
 
     // Step 2: Check if user previously reacted with this SAME emoji
     const userPreviouslyUsedThisEmoji = existingReactions.some(
@@ -461,15 +463,23 @@ export const reactToMessage = asyncHandler(async (req) => {
         reaction.userIds.some((id) => id.toString() === userId.toString())
     );
 
-    // Step 3: If NOT toggling off (different emoji or no previous reaction), add new reaction
+    // Step 3: If NOT toggling off, add new reaction
     if (!userPreviouslyUsedThisEmoji) {
-      updatedReactions.push({
-        emoji,
-        userIds: [userId],
-        messageId,
-      });
+      // Check if this emoji already exists in the CLEANED array
+      const existingEmojiIndex = updatedReactions.findIndex((r) => r.emoji === emoji);
+
+      if (existingEmojiIndex !== -1) {
+        // Emoji exists, add user to it
+        updatedReactions[existingEmojiIndex].userIds.push(userId);
+      } else {
+        // New emoji, create it
+        updatedReactions.push({
+          emoji,
+          userIds: [userId],
+          messageId,
+        });
+      }
     }
-    // If toggling off (same emoji), we already removed it in Step 1
   }
 
   // Update the message in database
@@ -502,7 +512,6 @@ export const reactToMessage = asyncHandler(async (req) => {
 
     console.log('🎭 Emitting reaction:', reactionPayload);
 
-    // Emit to ALL participants (including the person who reacted)
     for (const participantId of chat.participants) {
       const participantIdStr = participantId.toString();
       const isOnline = isUserOnline(participantIdStr);
@@ -517,7 +526,6 @@ export const reactToMessage = asyncHandler(async (req) => {
       }
     }
 
-    // Update last message if needed
     if (chat.lastMessage?.toString() === messageId) {
       const [chatPayload] = await chatModel.aggregate([
         { $match: { _id: new mongoose.Types.ObjectId(chatId) } },
@@ -568,7 +576,6 @@ export const reactToMessage = asyncHandler(async (req) => {
 
   return new ApiResponse(200, 'Reaction updated', messagePayload);
 });
-
 export const replyToMessage = asyncHandler(async (req, res) => {
   const { chatId, messageId } = req.params;
   const { content, mentions = [] } = req.body;
