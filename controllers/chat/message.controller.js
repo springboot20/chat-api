@@ -208,7 +208,7 @@ export const getAllChats = asyncHandler(async (req, res) => {
 
 export const createMessage = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
-  const { content, mentions = [] } = req.body;
+  const { content, mentions = [], audioDuration } = req.body;
 
   const chat = await chatModel.findById(chatId);
   if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
@@ -217,13 +217,36 @@ export const createMessage = asyncHandler(async (req, res) => {
 
   // Handle attachments
   const attachments = [];
+
   if (req.files?.attachments?.length > 0) {
-    req.files.attachments.forEach((attachment) => {
-      attachments.push({
-        url: getStaticFilePath(req, attachment.filename),
-        localPath: getLocalFilePath(attachment.filename),
-      });
-    });
+    for (const attachment of req.files.attachments) {
+      const fileUrl = getStaticFilePath(req, attachment.filename);
+      const localPath = getLocalFilePath(attachment.filename); // ✅ Determine file type
+
+      let fileType = 'document';
+      if (attachment.mimetype.startsWith('image/')) {
+        fileType = 'image';
+      } else if (attachment.mimetype.startsWith('video/')) {
+        fileType = 'video';
+      } else if (attachment.mimetype.startsWith('audio/')) {
+        fileType = 'voice';
+      }
+
+      const attachmentData = {
+        url: fileUrl,
+        localPath: localPath,
+        fileType: fileType,
+        fileName: attachment.originalname,
+        fileSize: attachment.size,
+      };
+
+      // ✅ Get duration for voice messages
+      if (fileType === 'voice') {
+        attachmentData.duration = audioDuration ? parseInt(audioDuration) : 0;
+      }
+
+      attachments.push(attachmentData);
+    }
   }
 
   const parsedMentions = typeof mentions === 'string' ? JSON.parse(mentions) : mentions;
@@ -231,10 +254,12 @@ export const createMessage = asyncHandler(async (req, res) => {
   // 1️⃣ Create message
   const message = await messageModel.create({
     content: content || '',
-    sender: req.user._id,
+    sender: req.user._id, 
     chat: chatId,
     attachments,
     mentions: Array.isArray(parsedMentions) ? parsedMentions : [],
+    deliveredTo: [],
+    seenBy: [],
   });
 
   // 2️⃣ Update lastMessage
@@ -365,7 +390,7 @@ export const deleteChatMessage = asyncHandler(async (req, res) => {
   const updatedMessage = await messageModel.findOneAndUpdate(
     { _id: messageId, chat: chatId },
     { $set: { isDeleted: true } },
-    { new: true }
+    { new: true },
   );
 
   const messageWithSender = await messageModel.aggregate([
@@ -425,7 +450,7 @@ export const reactToMessage = asyncHandler(async (req) => {
     const userPreviouslyUsedThisEmoji = existingReactions.some(
       (reaction) =>
         reaction.emoji === emoji &&
-        reaction.userIds.some((id) => id.toString() === userId.toString())
+        reaction.userIds.some((id) => id.toString() === userId.toString()),
     );
 
     // Step 3: If NOT toggling off (different emoji or no previous reaction), add new reaction
@@ -451,14 +476,14 @@ export const reactToMessage = asyncHandler(async (req) => {
 
     // Step 1: Remove ALL reactions from this user
     updatedReactions = existingReactions.filter(
-      (reaction) => !reaction.userIds.some((id) => id.toString() === userId.toString())
+      (reaction) => !reaction.userIds.some((id) => id.toString() === userId.toString()),
     );
 
     // Step 2: Check if user previously reacted with this SAME emoji
     const userPreviouslyUsedThisEmoji = existingReactions.some(
       (reaction) =>
         reaction.emoji === emoji &&
-        reaction.userIds.some((id) => id.toString() === userId.toString())
+        reaction.userIds.some((id) => id.toString() === userId.toString()),
     );
 
     // Step 3: If NOT toggling off (different emoji or no previous reaction), add new reaction
@@ -476,7 +501,7 @@ export const reactToMessage = asyncHandler(async (req) => {
   const updatedMessage = await messageModel.findByIdAndUpdate(
     messageId,
     { $set: { reactions: updatedReactions } },
-    { new: true }
+    { new: true },
   );
 
   if (!updatedMessage) throw new ApiError(500, 'Failed to update message');
@@ -512,7 +537,7 @@ export const reactToMessage = asyncHandler(async (req) => {
       if (isOnline) {
         io.to(`user:${participantIdStr}`).emit(
           SocketEventEnum.REACTION_RECEIVED_EVENT,
-          reactionPayload
+          reactionPayload,
         );
       }
     }
@@ -558,7 +583,7 @@ export const reactToMessage = asyncHandler(async (req) => {
           if (isUserOnline(participantId.toString())) {
             io.to(`user:${participantId}`).emit(
               SocketEventEnum.UPDATE_CHAT_LAST_MESSAGE_EVENT,
-              chatPayload
+              chatPayload,
             );
           }
         }
@@ -571,7 +596,7 @@ export const reactToMessage = asyncHandler(async (req) => {
 
 export const replyToMessage = asyncHandler(async (req, res) => {
   const { chatId, messageId } = req.params;
-  const { content, mentions = [] } = req.body;
+  const { content, mentions = [], audioDuration } = req.body;
 
   const chat = await chatModel.findById(chatId);
   if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
@@ -580,13 +605,36 @@ export const replyToMessage = asyncHandler(async (req, res) => {
 
   // Handle attachments
   const attachments = [];
+
   if (req.files?.attachments?.length > 0) {
-    req.files.attachments.forEach((attachment) => {
-      attachments.push({
-        url: getStaticFilePath(req, attachment.filename),
-        localPath: getLocalFilePath(attachment.filename),
-      });
-    });
+    for (const attachment of req.files.attachments) {
+      const fileUrl = getStaticFilePath(req, attachment.filename);
+      const localPath = getLocalFilePath(attachment.filename); // ✅ Determine file type
+
+      let fileType = 'document';
+      if (attachment.mimetype.startsWith('image/')) {
+        fileType = 'image';
+      } else if (attachment.mimetype.startsWith('video/')) {
+        fileType = 'video';
+      } else if (attachment.mimetype.startsWith('audio/')) {
+        fileType = 'voice';
+      }
+
+      const attachmentData = {
+        url: fileUrl,
+        localPath: localPath,
+        fileType: fileType,
+        fileName: attachment.originalname,
+        fileSize: attachment.size,
+      };
+
+      // ✅ Get duration for voice messages
+      if (fileType === 'voice') {
+        attachmentData.duration = audioDuration ? parseInt(audioDuration) : 0;
+      }
+
+      attachments.push(attachmentData);
+    }
   }
 
   const parsedMentions = typeof mentions === 'string' ? JSON.parse(mentions) : mentions;
@@ -743,7 +791,7 @@ export const markMessagesAsSeen = asyncHandler(async (req, res) => {
 
   await messageModel.updateMany(
     { _id: { $in: messageIds } },
-    { $addToSet: { seenBy: userId, deliveredTo: userId }, $set: { status: 'seen' } }
+    { $addToSet: { seenBy: userId, deliveredTo: userId }, $set: { status: 'seen' } },
   );
 
   const io = req.app.get('io');
