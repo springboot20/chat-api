@@ -45,7 +45,16 @@ const messageSchema = new Schema(
       type: [
         {
           url: String,
-          localPath: String,
+          localPath: String, // ✅ Add file type and metadata
+          fileType: {
+            type: String,
+            enum: ['image', 'document', 'video', 'voice'], // Add 'voice'
+          },
+          fileName: String,
+          fileSize: Number,
+          // ✅ For voice messages
+          duration: Number, // in seconds
+          waveform: [Number], // waveform data points
         },
       ],
       default: [],
