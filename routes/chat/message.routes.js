@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { messageController } from '../../controllers/index.js';
 import { verifyJWT } from '../../middlewares/auth.middleware.js';
-import { upload } from '../../middlewares/multer.middleware.js';
 import { mongoPathVariableValidation } from '../../validation/mongo/mongoId.validators.js';
 import { validate } from '../../validation/validate.middleware.js';
+import { upload } from '../../middlewares/multer.middleware.js';
 
 export const router = Router();
 
