@@ -59,7 +59,7 @@ const autoDeliverMessages = async (socket, io) => {
         {
           $addToSet: { deliveredTo: userId },
           $set: { status: 'delivered' },
-        }
+        },
       );
 
       // Notify each sender that their message was delivered
@@ -67,7 +67,7 @@ const autoDeliverMessages = async (socket, io) => {
 
       for (const senderId of senderIds) {
         const senderMessages = messageIds.filter(
-          (msgId, idx) => undeliveredMessages[idx].sender.toString() === senderId
+          (msgId, idx) => undeliveredMessages[idx].sender.toString() === senderId,
         );
 
         io.to(`user:${senderId}`).emit(SocketEventEnum.MESSAGE_DELIVERED_EVENT, {
@@ -114,7 +114,7 @@ const initializeSocket = (io) => {
         console.error('❌ Invalid token payload');
         socket.emit(
           SocketEventEnum.SOCKET_ERROR_EVENT,
-          'Authentication failed: Invalid token payload'
+          'Authentication failed: Invalid token payload',
         );
         socket.disconnect(true);
         return;
@@ -199,6 +199,7 @@ const initializeSocket = (io) => {
       mountTypingEvent(socket);
       unMountTypingEvent(socket);
       mountJoinChatEvent(io, socket);
+      mountLeaveChatEvent(io, socket);
 
       /**
        * Disconnect
@@ -238,6 +239,35 @@ const initializeSocket = (io) => {
 };
 
 /**
+ * 🚪 LEAVE_CHAT_EVENT
+ */
+const mountLeaveChatEvent = (io, socket) => {
+  socket.on(SocketEventEnum.LEAVE_CHAT_EVENT, async ({ chatId }) => {
+    try {
+      const userId = socket.user._id;
+
+      const chat = await chatModel.findById(chatId).select('participants');
+      if (!chat) return;
+
+      const isParticipant = chat.participants.some((p) => p.equals(userId));
+
+      if (!isParticipant) {
+        console.log('❌ Unauthorized LEAVE_CHAT_EVENT attempt');
+        return;
+      }
+
+      // 1️⃣ Leave chat room
+      socket.leave(`chat:${chatId}`);
+
+      console.log(`🚪 User ${socket.user.username} left chat ${chatId}`);
+
+    } catch (error) {
+      console.error('❌ LEAVE_CHAT_EVENT error:', error);
+    }
+  });
+};
+
+/**
  * ✅ JOIN_CHAT_EVENT
  */
 const mountJoinChatEvent = (io, socket) => {
@@ -249,7 +279,7 @@ const mountJoinChatEvent = (io, socket) => {
       if (!chat) return;
 
       const isParticipant = chat?.participants.some((participantId) =>
-        participantId.equals(userId)
+        participantId.equals(userId),
       );
 
       if (!isParticipant) {
@@ -282,7 +312,7 @@ const mountJoinChatEvent = (io, socket) => {
               deliveredTo: userId,
             },
             $set: { status: 'seen' },
-          }
+          },
         );
 
         // Notify senders (blue checkmarks)
@@ -301,7 +331,7 @@ const mountJoinChatEvent = (io, socket) => {
         }
 
         console.log(
-          `👁️ Auto-marked ${messageIds.length} messages as seen for ${socket.user.username}`
+          `👁️ Auto-marked ${messageIds.length} messages as seen for ${socket.user.username}`,
         );
       }
     } catch (err) {

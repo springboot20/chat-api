@@ -87,7 +87,7 @@ const deleteCascadeMessages = async (chatId) => {
   attachments = attachments.concat(
     ...chatMessages.map((msg) => {
       return msg.attachments;
-    })
+    }),
   );
 
   attachments.forEach((attachment) => {
@@ -133,6 +133,15 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
   ]);
 
   if (chat.length) {
+    const io = req.app.get('io');
+    if (io) {
+      let chatPayload = chat[0];
+
+      chatPayload.participants.forEach((participant) => {
+        io.to(`user:${participant._id}`).emit(SocketEventEnum.NEW_CHAT_EVENT, chatPayload);
+      });
+    }
+
     return new ApiResponse(StatusCodes.OK, 'chat retrieved successfully', chat[0]);
   }
 
@@ -158,7 +167,11 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
 
   // ✅ Emit NEW_CHAT_EVENT to chat room (receiver only)
   const io = req.app.get('io');
-  if (io) io.to(`chat:${chatPayload._id}`).emit(SocketEventEnum.NEW_CHAT_EVENT, chatPayload);
+  if (io) {
+    chatPayload.participants.forEach((participant) => {
+      io.to(`user:${participant._id}`).emit(SocketEventEnum.NEW_CHAT_EVENT, chatPayload);
+    });
+  }
 
   return new ApiResponse(StatusCodes.OK, 'Chat created successfully', chatPayload);
 });
@@ -169,7 +182,7 @@ export const createGroupChat = asyncHandler(async (req, res) => {
   if (participants?.includes(req.user._id)) {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
-      'Participants payload should not contain the group creator'
+      'Participants payload should not contain the group creator',
     );
   }
 
@@ -197,10 +210,11 @@ export const createGroupChat = asyncHandler(async (req, res) => {
   const groupChatPayload = createdGroupChat[0];
 
   const io = req.app.get('io');
-  if (io)
-    io.to(`chat:${groupChatPayload._id}`)
-      .except(req.user._id.toString())
-      .emit(SocketEventEnum.NEW_CHAT_EVENT, groupChatPayload);
+  if (io) {
+    groupChatPayload.participants.forEach((participantId) => {
+      io.to(`user:${participantId}`).emit(SocketEventEnum.NEW_CHAT_EVENT, groupChatPayload);
+    });
+  }
 
   return new ApiResponse(StatusCodes.OK, 'Group chat created successfully', groupChatPayload);
 });
@@ -226,7 +240,7 @@ export const changeGroupName = asyncHandler(async (req, res) => {
         name: name,
       },
     },
-    { new: true }
+    { new: true },
   );
 
   await updatedChat.save();
@@ -283,7 +297,7 @@ export const leaveGroupChat = asyncHandler(async (req, res) => {
   const updatedChat = await chatModel.findByIdAndUpdate(
     chatId,
     { $pull: { participants: req.user._id } },
-    { new: true }
+    { new: true },
   );
 
   const updatedGroup = await chatModel.aggregate([
@@ -296,8 +310,7 @@ export const leaveGroupChat = asyncHandler(async (req, res) => {
 
   const io = req.app.get('io');
   if (io) {
-    // Notify remaining participants that user left
-    io.to(`chat:${chatId}`).emit(SocketEventEnum.LEAVE_CHAT_EVENT, groupPayload);
+    io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
   }
 
   return new ApiResponse(StatusCodes.OK, 'You have left the group', groupPayload);
@@ -320,8 +333,9 @@ export const deleteOneOnOneChat = asyncHandler(async (req, res) => {
 
   const io = req.app.get('io');
   if (io) {
-    // Notify the other participant in the chat room
-    io.to(`chat:${chatId}`).emit(SocketEventEnum.LEAVE_CHAT_EVENT, chatPayload);
+    chatPayload.participants.forEach((participant) => {
+      io.to(`user:${participant._id}`).emit(SocketEventEnum.LEAVE_CHAT_EVENT, chatPayload);
+    });
   }
 
   return new ApiResponse(StatusCodes.OK, 'Chat deleted successfully', {});
@@ -347,8 +361,9 @@ export const deleteGroupChat = asyncHandler(async (req, res) => {
 
   const io = req.app.get('io');
   if (io) {
-    // Notify all participants in the chat room
-    io.to(`chat:${chatId}`).emit(SocketEventEnum.LEAVE_CHAT_EVENT, groupPayload);
+    groupPayload.participants.forEach((participant) => {
+      io.to(`user:${participant._id}`).emit(SocketEventEnum.LEAVE_CHAT_EVENT, groupPayload);
+    });
   }
 
   return new ApiResponse(StatusCodes.OK, 'Group chat deleted successfully', {});
@@ -381,7 +396,7 @@ export const addParticipantToGroupChat = asyncHandler(async (req, res) => {
         participants: participantId,
       },
     },
-    { new: true }
+    { new: true },
   );
 
   const updatedGroup = await chatModel.aggregate([
@@ -397,7 +412,7 @@ export const addParticipantToGroupChat = asyncHandler(async (req, res) => {
   const groupPayload = updatedGroup[0];
 
   const io = req.app.get('io');
-  if (io) io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_CHAT_EVENT, groupPayload);
+  if (io) io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
 
   return new ApiResponse(StatusCodes.OK, 'Participant added successfully', groupPayload);
 });
@@ -429,7 +444,7 @@ export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
         participants: participantId,
       },
     },
-    { new: true }
+    { new: true },
   );
 
   const updatedGroup = await chatModel.aggregate([
@@ -445,7 +460,7 @@ export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
   const groupPayload = updatedGroup[0];
 
   const io = req.app.get('io');
-  if (io) io.to(`chat:${chatId}`).emit(SocketEventEnum.LEAVE_CHAT_EVENT, groupPayload);
+  if (io) io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
 
   return new ApiResponse(StatusCodes.OK, 'Participant removed successfully', groupPayload);
 });
