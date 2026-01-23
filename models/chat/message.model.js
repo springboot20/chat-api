@@ -46,6 +46,7 @@ const messageSchema = new Schema(
         {
           url: String,
           localPath: String, // ✅ Add file type and metadata
+          public_id: String,
           fileType: {
             type: String,
             enum: ['image', 'document', 'video', 'voice'], // Add 'voice'
@@ -97,7 +98,7 @@ const messageSchema = new Schema(
       ref: 'ChatMessage',
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 const messageModel = model('ChatMessage', messageSchema);

@@ -7,6 +7,9 @@ import mongoose from 'mongoose';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { SocketEventEnum } from '../../constants/constants.js';
 import { isUserOnline, notifyChatParticipants, onlineUsers } from '../../socketIo/socket.js';
+import { uploadFileToCloudinary } from '../../configs/cloudinary.config.js';
+
+const mode = process.env.NODE_ENV;
 
 /**
  * @return {mongoose.PipelineStage[]}
@@ -219,33 +222,69 @@ export const createMessage = asyncHandler(async (req, res) => {
   const attachments = [];
 
   if (req.files?.attachments?.length > 0) {
-    for (const attachment of req.files.attachments) {
-      const fileUrl = getStaticFilePath(req, attachment.filename);
-      const localPath = getLocalFilePath(attachment.filename); // ✅ Determine file type
+    if (mode === 'production') {
+      const uploadPromises = req.files.attachments.map(async (attachment) => {
+        let category = 'documents';
 
-      let fileType = 'document';
-      if (attachment.mimetype.startsWith('image/')) {
-        fileType = 'image';
-      } else if (attachment.mimetype.startsWith('video/')) {
-        fileType = 'video';
-      } else if (attachment.mimetype.startsWith('audio/')) {
-        fileType = 'voice';
+        if (attachment.mimetype.startsWith('image/')) {
+          category = 'images';
+        } else if (attachment.mimetype.startsWith('video/')) {
+          category = 'videos';
+        } else if (attachment.mimetype.startsWith('audio/')) {
+          category = 'voices';
+        }
+
+        return uploadFileToCloudinary(
+          attachment.buffer,
+          `${process.env.CLOUDINARY_BASE_FOLDER}/${category}`,
+        );
+      });
+
+      const uploadResults = await Promise.all(uploadPromises);
+
+      for (let i = 0; i < uploadResults.length; i++) {
+        const attachment = req.files.attachments[i];
+
+        let fileType = 'document';
+
+        if (attachment.mimetype.startsWith('image/')) fileType = 'image';
+        else if (attachment.mimetype.startsWith('video/')) fileType = 'video';
+        else if (attachment.mimetype.startsWith('audio/')) fileType = 'voice';
+
+        attachments.push({
+          fileType: fileType,
+          fileName: attachment.originalname,
+          fileSize: attachment.size,
+          url: uploadResults[i].url,
+          localPath: uploadResults[i].localPath,
+          duration: audioDuration ? parseInt(audioDuration) : 0,
+        });
       }
+    } else {
+      for (const attachment of req.files.attachments) {
+        const fileUrl = getStaticFilePath(req, attachment.filename);
+        const localPath = getLocalFilePath(attachment.filename); // ✅ Determine file type
+        let fileType = 'document';
 
-      const attachmentData = {
-        url: fileUrl,
-        localPath: localPath,
-        fileType: fileType,
-        fileName: attachment.originalname,
-        fileSize: attachment.size,
-      };
+        if (attachment.mimetype.startsWith('image/')) fileType = 'image';
+        else if (attachment.mimetype.startsWith('video/')) fileType = 'video';
+        else if (attachment.mimetype.startsWith('audio/')) fileType = 'voice';
 
-      // ✅ Get duration for voice messages
-      if (fileType === 'voice') {
-        attachmentData.duration = audioDuration ? parseInt(audioDuration) : 0;
+        const attachmentData = {
+          fileType: fileType,
+          fileName: attachment.originalname,
+          fileSize: attachment.size,
+          url: fileUrl,
+          localPath,
+        };
+
+        // ✅ Get duration for voice messages
+        if (fileType === 'voice') {
+          attachmentData.duration = audioDuration ? parseInt(audioDuration) : 0;
+        }
+
+        attachments.push(attachmentData);
       }
-
-      attachments.push(attachmentData);
     }
   }
 
@@ -254,7 +293,7 @@ export const createMessage = asyncHandler(async (req, res) => {
   // 1️⃣ Create message
   const message = await messageModel.create({
     content: content || '',
-    sender: req.user._id, 
+    sender: req.user._id,
     chat: chatId,
     attachments,
     mentions: Array.isArray(parsedMentions) ? parsedMentions : [],
@@ -606,33 +645,69 @@ export const replyToMessage = asyncHandler(async (req, res) => {
   const attachments = [];
 
   if (req.files?.attachments?.length > 0) {
-    for (const attachment of req.files.attachments) {
-      const fileUrl = getStaticFilePath(req, attachment.filename);
-      const localPath = getLocalFilePath(attachment.filename); // ✅ Determine file type
+    if (mode === 'production') {
+      const uploadPromises = req.files.attachments.map(async (attachment) => {
+        let category = 'documents';
 
-      let fileType = 'document';
-      if (attachment.mimetype.startsWith('image/')) {
-        fileType = 'image';
-      } else if (attachment.mimetype.startsWith('video/')) {
-        fileType = 'video';
-      } else if (attachment.mimetype.startsWith('audio/')) {
-        fileType = 'voice';
+        if (attachment.mimetype.startsWith('image/')) {
+          category = 'images';
+        } else if (attachment.mimetype.startsWith('video/')) {
+          category = 'videos';
+        } else if (attachment.mimetype.startsWith('audio/')) {
+          category = 'voices';
+        }
+
+        return uploadFileToCloudinary(
+          attachment.buffer,
+          `${process.env.CLOUDINARY_BASE_FOLDER}/${category}`,
+        );
+      });
+
+      const uploadResults = await Promise.all(uploadPromises);
+
+      for (let i = 0; i < uploadResults.length; i++) {
+        const attachment = req.files.attachments[i];
+
+        let fileType = 'document';
+
+        if (attachment.mimetype.startsWith('image/')) fileType = 'image';
+        else if (attachment.mimetype.startsWith('video/')) fileType = 'video';
+        else if (attachment.mimetype.startsWith('audio/')) fileType = 'voice';
+
+        attachments.push({
+          fileType: fileType,
+          fileName: attachment.originalname,
+          fileSize: attachment.size,
+          url: uploadResults[i].url,
+          localPath: uploadResults[i].localPath,
+          duration: audioDuration ? parseInt(audioDuration) : 0,
+        });
       }
+    } else {
+      for (const attachment of req.files.attachments) {
+        const fileUrl = getStaticFilePath(req, attachment.filename);
+        const localPath = getLocalFilePath(attachment.filename); // ✅ Determine file type
+        let fileType = 'document';
 
-      const attachmentData = {
-        url: fileUrl,
-        localPath: localPath,
-        fileType: fileType,
-        fileName: attachment.originalname,
-        fileSize: attachment.size,
-      };
+        if (attachment.mimetype.startsWith('image/')) fileType = 'image';
+        else if (attachment.mimetype.startsWith('video/')) fileType = 'video';
+        else if (attachment.mimetype.startsWith('audio/')) fileType = 'voice';
 
-      // ✅ Get duration for voice messages
-      if (fileType === 'voice') {
-        attachmentData.duration = audioDuration ? parseInt(audioDuration) : 0;
+        const attachmentData = {
+          fileType: fileType,
+          fileName: attachment.originalname,
+          fileSize: attachment.size,
+          url: fileUrl,
+          localPath,
+        };
+
+        // ✅ Get duration for voice messages
+        if (fileType === 'voice') {
+          attachmentData.duration = audioDuration ? parseInt(audioDuration) : 0;
+        }
+
+        attachments.push(attachmentData);
       }
-
-      attachments.push(attachmentData);
     }
   }
 
