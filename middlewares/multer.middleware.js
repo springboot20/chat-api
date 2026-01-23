@@ -1,4 +1,5 @@
 import multer from 'multer';
+import { uploadLocalFiles } from '../helper.js';
 
 const HOME_UPLOAD_DIRECTORY = 'public';
 
@@ -15,7 +16,7 @@ const developmentStorage = multer.diskStorage({
     // 1. Determine subfolder based on the file type
     let subFolder = 'documents'; // Default
     if (file.mimetype.startsWith('image/')) subFolder = 'images';
-    else if (file.mimetype.startsWith('audio/')) subFolder = 'voice';
+    else if (file.mimetype.startsWith('audio/')) subFolder = 'voices';
     else if (file.mimetype.startsWith('video/')) subFolder = 'videos';
 
     // 2. Build the path: public/uploads/images, etc.

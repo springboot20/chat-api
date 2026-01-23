@@ -40,16 +40,16 @@ export const uploadLocalFiles = (uploadDirectory) => {
 /**
  * Returns the URL for the frontend to access the file
  */
-export const getStaticFilePath = (req, fileName) => {
+export const getStaticFilePath = (req, folder, fileName) => {
   // Assuming 'public' is served as static, so it's not part of the URL
-  return `${req.protocol}://${req.get('host')}/uploads/${fileName}`;
+  return `${req.protocol}://${req.get('host')}/uploads/${folder}/${fileName}`;
 };
 
 /**
  * Returns the relative path for database storage and unlinking
  */
-export const getLocalFilePath = (fileName) => {
-  return path.join('public', 'uploads', fileName);
+export const getLocalFilePath = (folder, fileName) => {
+  return path.join('public', 'uploads', folder, fileName);
 };
 
 /**

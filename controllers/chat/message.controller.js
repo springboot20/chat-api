@@ -262,13 +262,22 @@ export const createMessage = asyncHandler(async (req, res) => {
       }
     } else {
       for (const attachment of req.files.attachments) {
-        const fileUrl = getStaticFilePath(req, attachment.filename);
-        const localPath = getLocalFilePath(attachment.filename); // ✅ Determine file type
         let fileType = 'document';
+        let category = 'documents';
 
-        if (attachment.mimetype.startsWith('image/')) fileType = 'image';
-        else if (attachment.mimetype.startsWith('video/')) fileType = 'video';
-        else if (attachment.mimetype.startsWith('audio/')) fileType = 'voice';
+        if (attachment.mimetype.startsWith('image/')) {
+          fileType = 'image';
+          category = 'images';
+        } else if (attachment.mimetype.startsWith('video/')) {
+          fileType = 'video';
+          category = 'videos';
+        } else if (attachment.mimetype.startsWith('audio/')) {
+          fileType = 'voice';
+          category = 'voices';
+        }
+
+        const fileUrl = getStaticFilePath(req, category, attachment.filename);
+        const localPath = getLocalFilePath(category, attachment.filename); // ✅ Determine file type
 
         const attachmentData = {
           fileType: fileType,
