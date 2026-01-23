@@ -255,8 +255,8 @@ export const createMessage = asyncHandler(async (req, res) => {
           fileType: fileType,
           fileName: attachment.originalname,
           fileSize: attachment.size,
-          url: uploadResults[i].url,
-          localPath: uploadResults[i].localPath,
+          url: uploadResults[i].secure_url,
+          public_id: uploadResults[i].public_id,
           duration: audioDuration ? parseInt(audioDuration) : 0,
         });
       }
@@ -687,8 +687,8 @@ export const replyToMessage = asyncHandler(async (req, res) => {
           fileType: fileType,
           fileName: attachment.originalname,
           fileSize: attachment.size,
-          url: uploadResults[i].url,
-          localPath: uploadResults[i].localPath,
+          url: uploadResults[i].secure_url,
+          public_id: uploadResults[i].public_id,
           duration: audioDuration ? parseInt(audioDuration) : 0,
         });
       }
