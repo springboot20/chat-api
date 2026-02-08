@@ -19,6 +19,8 @@ import { errorHandler } from './middlewares/error.middleware.js';
 import { router as authRouter } from './routes/auth/auth.routes.js';
 import { router as chatRouter } from './routes/chat/chat.routes.js';
 import { router as messageRouter } from './routes/chat/message.routes.js';
+import { router as statusRouter } from './routes/chat/status.routes.js';
+import { setupStatusCleanupJob } from './service/cron-jobs.js';
 
 const app = express();
 const PORT = process.env.PORT || 4020;
@@ -99,9 +101,17 @@ app.use(passport.session());
 app.use('/api/v1/auth/users', authRouter);
 app.use('/api/v1/chat-app/chats', chatRouter);
 app.use('/api/v1/chat-app/messages', messageRouter);
+app.use('/api/v1/chat-app/statuses', statusRouter);
 
 mongoose.connection.on('connected', () => {
   console.log('Mongodb connected ....');
+});
+
+mongoose.connection.once('open', () => {
+  console.log('✅ Database connected');
+  
+  // Start cron jobs
+  setupStatusCleanupJob();
 });
 
 process.on('SIGINT', () => {
