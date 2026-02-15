@@ -84,3 +84,19 @@ export const removeLocalFile = (localPath) => {
     });
   }
 };
+
+export const getPaginatedData = (req, totalItems) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, parseInt(req.query.limit) || 10);
+  const skip = (page - 1) * limit;
+
+  const totalPages = Math.ceil(totalItems / limit);
+
+  return {
+    page,
+    limit,
+    skip,
+    total: totalItems,
+    hasMore: page < totalPages,
+  };
+};

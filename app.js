@@ -20,6 +20,7 @@ import { router as authRouter } from './routes/auth/auth.routes.js';
 import { router as chatRouter } from './routes/chat/chat.routes.js';
 import { router as messageRouter } from './routes/chat/message.routes.js';
 import { router as statusRouter } from './routes/chat/status.routes.js';
+import { router as contactRouter } from './routes/contact/contact.routes.js';
 import { setupStatusCleanupJob } from './service/cron-jobs.js';
 
 const app = express();
@@ -98,10 +99,11 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // API Routes
-app.use('/api/v1/auth/users', authRouter);
+app.use('/api/v1/chat-app/auth/users', authRouter);
 app.use('/api/v1/chat-app/chats', chatRouter);
 app.use('/api/v1/chat-app/messages', messageRouter);
 app.use('/api/v1/chat-app/statuses', statusRouter);
+app.use('/api/v1/chat-app/contacts', contactRouter);
 
 mongoose.connection.on('connected', () => {
   console.log('Mongodb connected ....');
@@ -109,7 +111,7 @@ mongoose.connection.on('connected', () => {
 
 mongoose.connection.once('open', () => {
   console.log('✅ Database connected');
-  
+
   // Start cron jobs
   setupStatusCleanupJob();
 });

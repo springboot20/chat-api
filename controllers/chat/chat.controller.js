@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { ApiError } from '../../utils/ApiError.js';
 import { ApiResponse } from '../../utils/ApiResponse.js';
-import { chatModel, messageModel, userModel } from '../../models/index.js';
+import { chatModel, ContactModel, messageModel, userModel } from '../../models/index.js';
 import { removeLocalFile } from '../../helper.js';
 import mongoose from 'mongoose';
 import { asyncHandler } from '../../utils/asyncHandler.js';
@@ -99,73 +99,79 @@ const deleteCascadeMessages = async (chatId) => {
 
 export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
   const { receiverId } = req.params;
+  const senderId = req.user._id;
 
-  const receiver = await userModel.findOne({ _id: new mongoose.Types.ObjectId(receiverId) });
+  // 1. Prevent self-chatting
+  if (senderId.toString() === receiverId) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot send messages to yourself');
+  }
 
-  if (!receiver) throw new ApiError(StatusCodes.NOT_FOUND, 'Receiver does not exists');
+  // 2. Parallel check for receiver existence and block status
+  const [receiver, blockStatus] = await Promise.all([
+    userModel.findById(receiverId),
+    ContactModel.findOne({
+      $or: [
+        { owner: senderId, contact: receiverId, isBlocked: true }, // I blocked them
+        { owner: receiverId, contact: senderId, isBlocked: true }, // They blocked me
+      ],
+    }),
+  ]);
 
-  if (req.user._id.toString() === receiver._id.toString())
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'message cannot be send to yourself');
+  if (!receiver) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Receiver does not exist');
+  }
 
+  // 3. Enforcement of the Block Record
+  if (blockStatus) {
+    const isMeeWhoBlocked = blockStatus.owner.toString() === senderId.toString();
+    throw new ApiError(
+      StatusCodes.FORBIDDEN,
+      isMeeWhoBlocked
+        ? 'You have blocked this user. Unblock them to chat.'
+        : 'Communication with this user is restricted.',
+    );
+  }
+
+  // 4. Find existing 1-on-1 chat
   const chat = await chatModel.aggregate([
     {
       $match: {
         isGroupChat: false,
-        $and: [
-          {
-            participants: {
-              $elemMatch: {
-                $eq: req.user._id,
-              },
-            },
-          },
-          {
-            participants: {
-              $elemMatch: {
-                $eq: new mongoose.Types.ObjectId(receiver?._id),
-              },
-            },
-          },
-        ],
+        participants: { $all: [senderId, new mongoose.Types.ObjectId(receiverId)] },
       },
     },
     ...pipelineAggregation(),
   ]);
 
-  if (chat.length) {
-    const io = req.app.get('io');
-    if (io) {
-      let chatPayload = chat[0];
-
-      chatPayload.participants.forEach((participant) => {
-        io.to(`user:${participant._id}`).emit(SocketEventEnum.NEW_CHAT_EVENT, chatPayload);
-      });
-    }
-
-    return new ApiResponse(StatusCodes.OK, 'chat retrieved successfully', chat[0]);
+  // 5. If chat exists, return it (no socket emit needed)
+  if (chat.length > 0) {
+    return new ApiResponse(StatusCodes.OK, 'Chat retrieved successfully', chat[0]);
   }
 
-  const newChatMessageInstanceWithSomeone = await chatModel.create({
-    name: 'two user chat',
+  // 6. Create new chat if it doesn't exist
+  const newChatInstance = await chatModel.create({
+    name: 'One-on-One Chat',
     isGroupChat: false,
-    participants: [req.user._id, new mongoose.Types.ObjectId(receiverId)],
-    admin: req.user._id,
+    participants: [senderId, new mongoose.Types.ObjectId(receiverId)],
+    admin: senderId,
   });
 
+  // 7. Aggregate the newly created chat to get populated fields
   const createdChat = await chatModel.aggregate([
-    {
-      $match: {
-        _id: newChatMessageInstanceWithSomeone._id,
-      },
-    },
+    { $match: { _id: newChatInstance._id } },
     ...pipelineAggregation(),
   ]);
 
   const chatPayload = createdChat[0];
 
-  if (!chatPayload) throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Internal server error');
+  if (!chatPayload) {
+    throw new ApiError(
+      StatusCodes.INTERNAL_SERVER_ERROR,
+      'Internal server error during chat creation',
+    );
+  }
 
-  // ✅ Emit NEW_CHAT_EVENT to chat room (receiver only)
+  // 8. Emit Socket Event for brand NEW chats only
   const io = req.app.get('io');
   if (io) {
     chatPayload.participants.forEach((participant) => {
@@ -173,50 +179,87 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
     });
   }
 
-  return new ApiResponse(StatusCodes.OK, 'Chat created successfully', chatPayload);
+  return new ApiResponse(StatusCodes.CREATED, 'Chat created successfully', chatPayload);
 });
 
 export const createGroupChat = asyncHandler(async (req, res) => {
-  const { name, participants } = req.body;
+  const { name, participants } = req.body; // participants is an array of IDs
+  const creatorId = req.user._id;
 
-  if (participants?.includes(req.user._id)) {
+  // 1. Basic Validation
+  if (!participants || !Array.isArray(participants)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Participants list is required');
+  }
+
+  if (participants.includes(creatorId.toString())) {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
       'Participants payload should not contain the group creator',
     );
   }
 
-  const groupChatMembers = [...new Set([...participants, req.user._id.toString()])];
+  // Ensure unique members and include the creator
+  const uniqueMemberIds = [...new Set([...participants, creatorId.toString()])];
 
-  if (groupChatMembers.length < 3) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Seems like there is a duplicate members added');
+  // Group needs at least 3 members (Creator + 2 others)
+  if (uniqueMemberIds.length < 3) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'A group chat must have at least 3 unique members');
   }
 
+  // 2. Bidirectional Block Check
+  // We check if there is ANY block record between the creator and any participant
+  const blockRecord = await ContactModel.findOne({
+    $or: [
+      { owner: creatorId, contact: { $in: participants }, isBlocked: true }, // Creator blocked someone
+      { owner: { $in: participants }, contact: creatorId, isBlocked: true }, // Someone blocked the creator
+    ],
+  });
+
+  if (blockRecord) {
+    const isCreatorWhoBlocked = blockRecord.owner.toString() === creatorId.toString();
+    throw new ApiError(
+      StatusCodes.FORBIDDEN,
+      isCreatorWhoBlocked
+        ? 'You cannot add a user you have blocked to a group.'
+        : 'One or more users have restricted communication with you.',
+    );
+  }
+
+  // 3. Create the Group Chat
   const newGroupChatMessage = await chatModel.create({
-    name: name ?? 'group chat',
-    admin: req.user._id,
-    participants: groupChatMembers,
+    name: name || 'Group Chat',
+    admin: creatorId,
+    participants: uniqueMemberIds,
     isGroupChat: true,
   });
 
+  // 4. Aggregate to get full details (using your pipeline for consistency)
   const createdGroupChat = await chatModel.aggregate([
     {
       $match: {
         _id: newGroupChatMessage._id,
       },
     },
+    ...pipelineAggregation(), // Ensures participants details are populated
   ]);
 
   const groupChatPayload = createdGroupChat[0];
 
+  if (!groupChatPayload) {
+    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Failed to create group chat');
+  }
+
+  // 5. Emit Socket Events to all members
   const io = req.app.get('io');
   if (io) {
-    groupChatPayload.participants.forEach((participantId) => {
+    groupChatPayload.participants.forEach((participant) => {
+      // Logic assumes participant object has _id after aggregation
+      const participantId = participant._id || participant;
       io.to(`user:${participantId}`).emit(SocketEventEnum.NEW_CHAT_EVENT, groupChatPayload);
     });
   }
 
-  return new ApiResponse(StatusCodes.OK, 'Group chat created successfully', groupChatPayload);
+  return new ApiResponse(StatusCodes.CREATED, 'Group chat created successfully', groupChatPayload);
 });
 
 export const changeGroupName = asyncHandler(async (req, res) => {
@@ -463,27 +506,6 @@ export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
   if (io) io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
 
   return new ApiResponse(StatusCodes.OK, 'Participant removed successfully', groupPayload);
-});
-
-export const searchAvailableUsers = asyncHandler(async (req, res) => {
-  const users = await userModel.aggregate([
-    {
-      $match: {
-        _id: {
-          $ne: req.user._id, // avoid logged in user
-        },
-      },
-    },
-    {
-      $project: {
-        avatar: 1,
-        username: 1,
-        email: 1,
-      },
-    },
-  ]);
-
-  return new ApiResponse(200, 'Users fetched successfully', users);
 });
 
 export const getAllChats = asyncHandler(async (req, res) => {

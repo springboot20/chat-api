@@ -22,6 +22,8 @@ router
 
 router.route('/login').post(userLoginValidation(), validate, controllers.authController.loginUser);
 
+router.route('/refresh').post(controllers.authController.refreshAccessToken);
+
 router.route('/verify-email/:verificationToken').post(controllers.authController.verifyEmail);
 
 router
@@ -37,7 +39,7 @@ router
  */
 router.route('/logout').post(verifyJWT, controllers.authController.logOut);
 
-router.route('/').get(verifyJWT, controllers.authController.getUsers);
+router.route('/available-users').get(verifyJWT, controllers.authController.getUsers);
 
 router
   .route('/resend-email-verification')

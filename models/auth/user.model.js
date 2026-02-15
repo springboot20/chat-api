@@ -1,13 +1,13 @@
-import { Schema, model } from "mongoose";
+import { Schema, model } from 'mongoose';
 import {
   AvailableUserRole,
   UserRoles,
   LoginType,
   AvailableLoginType,
-} from "../../constants/constants.js";
-import bcrypt from "bcrypt";
-import crypto from "crypto";
-import jsonwebtoken from "jsonwebtoken";
+} from '../../constants/constants.js';
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import jsonwebtoken from 'jsonwebtoken';
 
 const userSchema = new Schema(
   {
@@ -65,11 +65,11 @@ const userSchema = new Schema(
       type: Date,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+userSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) return next();
   try {
     const salt = await bcrypt.genSalt(10); // 10 is a reasonable salt rounds value
 
@@ -107,16 +107,16 @@ userSchema.methods.generateRefreshToken = function () {
 };
 
 userSchema.methods.generateTemporaryToken = function () {
-  const unHashedToken = crypto.randomBytes(20).toString("hex");
-  const hashedToken = crypto
-    .createHash("sha256")
-    .update(unHashedToken)
-    .digest("hex");
+  const unHashedToken = crypto.randomBytes(20).toString('hex');
+  const hashedToken = crypto.createHash('sha256').update(unHashedToken).digest('hex');
 
   const tokenExpiry = 5 * 60 * 1000;
 
   return { unHashedToken, hashedToken, tokenExpiry };
 };
 
-const userModel = model("User", userSchema);
+userSchema.index({ username: 1 });
+userSchema.index({ email: 1 });
+
+const userModel = model('User', userSchema);
 export { userModel };

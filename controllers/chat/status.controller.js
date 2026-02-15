@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { ApiError } from '../../utils/ApiError.js';
 import { ApiResponse } from '../../utils/ApiResponse.js';
-import { StatusModel, chatModel } from '../../models/index.js';
+import { ContactModel, StatusModel } from '../../models/index.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import mongoose from 'mongoose';
 import {
@@ -14,26 +14,24 @@ const mode = process.env.NODE_ENV;
 
 export const postTextStatus = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { text, backgroundColor, type } = req.body;
+  const { text, backgroundColor, type, privacyType, selectedContactIds } = req.body;
 
-  const chats = await chatModel
-    .find({ participants: new mongoose.Types.ObjectId(userId) })
-    .select('participants')
-    .lean();
+  let finalVisibility = [];
 
-  const visibleTo = [
-    ...new Set(
-      chats.flatMap((chat) =>
-        chat.participants.map((id) => id.toString()).filter((id) => id !== userId.toString()),
-      ),
-    ),
-  ];
+  if (privacyType === 'all_contacts') {
+    // Fetch all contacts for this user
+    const contacts = await ContactModel.find({ owner: userId, isBlocked: false });
+    finalVisibility = contacts.map((c) => c.contact);
+  } else {
+    finalVisibility = selectedContactIds;
+  }
 
   const statusDoc = await StatusModel.create({
     postedBy: userId,
     type: 'text',
     textContent: { text, backgroundColor, type },
-    visibleTo,
+    privacyType,
+    visibleTo: finalVisibility,
   });
 
   await statusDoc.populate('postedBy', 'name username avatar');
@@ -43,7 +41,7 @@ export const postTextStatus = asyncHandler(async (req, res) => {
 
 export const postNewStatus = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
-  const { metadata } = req.body;
+  const { metadata, privacyType, selectedContactIds } = req.body;
 
   const parsedMetadata = JSON.parse(metadata);
   const statusFiles = req.files.statusMedias;
@@ -54,6 +52,16 @@ export const postNewStatus = asyncHandler(async (req, res) => {
 
   if (statusFiles.length !== parsedMetadata.length) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Metadata count must match file count');
+  }
+
+  let finalVisibility = [];
+
+  if (privacyType === 'all_contacts') {
+    // Fetch all contacts for this user
+    const contacts = await ContactModel.find({ owner: userId, isBlocked: false });
+    finalVisibility = contacts.map((c) => c.contact);
+  } else {
+    finalVisibility = selectedContactIds;
   }
 
   let mediaFilesResult = [];
@@ -98,19 +106,6 @@ export const postNewStatus = asyncHandler(async (req, res) => {
     }
   }
 
-  const chats = await chatModel
-    .find({ participants: new mongoose.Types.ObjectId(userId) })
-    .select('participants')
-    .lean();
-
-  const visibleTo = [
-    ...new Set(
-      chats.flatMap((chat) =>
-        chat.participants.map((id) => id.toString()).filter((id) => id !== userId.toString()),
-      ),
-    ),
-  ];
-
   const statusDocs = parsedMetadata.map((meta, index) => {
     const upload = mediaFilesResult[index];
 
@@ -123,7 +118,7 @@ export const postNewStatus = asyncHandler(async (req, res) => {
         public_id: upload?.public_id,
         localPath: upload?.localPath,
       },
-      visibleTo,
+      visibleTo: finalVisibility,
     };
   });
 
@@ -145,9 +140,7 @@ export const getStatusStoriesFeed = asyncHandler(async (req, res) => {
     // Only show statuses visible to current user
     {
       $match: {
-        $or: [
-          { visibleTo: new mongoose.Types.ObjectId(userId) },
-        ],
+        $or: [{ visibleTo: new mongoose.Types.ObjectId(userId) }],
       },
     },
 

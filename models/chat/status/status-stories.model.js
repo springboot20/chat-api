@@ -49,6 +49,12 @@ const statusSchema = new Schema(
       // This index tells MongoDB to delete the document when the time is reached
       index: { expires: 0 },
     },
+
+    privacyType: {
+      type: String,
+      enum: ['all_contacts', 'selected', 'except'],
+      default: 'all_contacts',
+    },
   },
   { timestamps: true },
 );
