@@ -175,10 +175,86 @@ const pipelineAggregation = () => {
     },
     {
       $addFields: {
-        repliedMessage: { $first: '$repliedMessage' }, // Flatten the array
+        'polling.options': {
+          $map: {
+            input: { $ifNull: ['$polling.options', []] },
+            as: 'option',
+            in: {
+              optionValue: '$$option.optionValue',
+              _id: '$$option._id',
+              // We will populate these IDs in the next step
+              responses: '$$option.responses',
+            },
+          },
+        },
+      },
+    },
+    // We lookup all users who have voted in any of the options at once for performance
+    {
+      $lookup: {
+        from: 'users',
+        let: {
+          allVoterIds: {
+            $reduce: {
+              input: '$polling.options.responses',
+              initialValue: [],
+              in: { $setUnion: ['$$value', '$$this'] },
+            },
+          },
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $in: ['$_id', '$$allVoterIds'] },
+            },
+          },
+          { $project: { _id: 1, username: 1, avatar: 1 } },
+        ],
+        as: 'voterObjects',
+      },
+    },
+    {
+      $addFields: {
+        'polling.options': {
+          $map: {
+            input: '$polling.options',
+            as: 'option',
+            in: {
+              _id: '$$option._id',
+              optionValue: '$$option.optionValue',
+              // Map the responses IDs to the full user objects we just looked up
+              responses: {
+                $map: {
+                  input: '$$option.responses',
+                  as: 'voterId',
+                  in: {
+                    $first: {
+                      $filter: {
+                        input: '$voterObjects',
+                        as: 'voter',
+                        cond: { $eq: ['$$voter._id', '$$voterId'] },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        repliedMessage: { $first: '$repliedMessage' },
         status: { $ifNull: ['$status', 'sent'] },
         deliveredTo: { $ifNull: ['$deliveredTo', []] },
         seenBy: { $ifNull: ['$seenBy', []] },
+      },
+    },
+    {
+      $project: {
+        reactionUsers: 0,
+        voterObjects: 0,
       },
     },
   ];
@@ -207,6 +283,213 @@ export const getAllChats = asyncHandler(async (req, res) => {
   ]);
 
   return new ApiResponse(200, 'Messages fetched successfully', { chatId, messages } || []);
+});
+
+export const toggleVoteToPollingVote = asyncHandler(async (req, res) => {
+  const { chatId, messageId, optionId } = req.params; // Use messageId for accuracy
+  const userId = req.user._id;
+
+  const message = await messageModel.findById(messageId);
+  if (!message || message.contentType !== 'polling') {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Poll not found');
+  }
+
+  const allowMultiple = message.polling.allowMultipleAnswer;
+
+  // 1. If multiple answers are NOT allowed, remove user from all other options first
+  if (!allowMultiple) {
+    message.polling.options.forEach((opt) => {
+      opt.responses = opt.responses.filter((id) => !id.equals(userId));
+    });
+  }
+
+  // 2. Find the target option
+  const targetOption = message.polling.options.find((opt) => opt._id.toString() === optionId);
+  if (!targetOption) throw new ApiError(StatusCodes.NOT_FOUND, 'Option not found');
+
+  const hasVotedForThis = targetOption.responses.some((id) => id.equals(userId));
+
+  if (hasVotedForThis) {
+    // Un-vote
+    targetOption.responses = targetOption.responses.filter((id) => !id.equals(userId));
+  } else {
+    // Add vote
+    targetOption.responses.push(userId);
+  }
+
+  await message.save();
+
+  const [messagePayload] = await messageModel.aggregate([
+    { $match: { _id: message._id } },
+    ...pipelineAggregation(),
+  ]);
+
+  console.log(messagePayload);
+
+  // 3. Emit a specific VOTE_UPDATE event so everyone's UI updates live
+  const io = req.app.get('io');
+  if (io) {
+    io.to(`chat:${chatId}`).emit(SocketEventEnum.POLL_VOTE_UPDATED, {
+      messageId: messagePayload._id,
+      options: messagePayload.polling.options, // Send updated options list
+    });
+  }
+
+  return new ApiResponse(StatusCodes.OK, 'Vote updated', message.polling.options);
+});
+
+export const createPollingVote = asyncHandler(async (req, res) => {
+  const { chatId } = req.params;
+  const { questionTitle, options = [], allowMultipleAnswer } = req.body;
+
+  const userId = req.user._id;
+
+  const chat = await chatModel.findById(chatId);
+  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
+
+  if (!options || options.length < 2) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'A poll must have at least two options');
+  }
+
+  const createdPollingVoteMessage = await messageModel.create({
+    content: '',
+    contentType: 'polling',
+    sender: userId,
+    chat: chatId,
+    attachments: [],
+    mentions: [],
+    deliveredTo: [],
+    seenBy: [],
+    polling: {
+      questionTitle,
+      allowMultipleAnswer: Boolean(allowMultipleAnswer),
+      options,
+    },
+  });
+
+  await chatModel.findByIdAndUpdate(chatId, {
+    $set: { lastMessage: createdPollingVoteMessage._id },
+  });
+
+  const [messagePayload] = await messageModel.aggregate([
+    { $match: { _id: createdPollingVoteMessage._id } },
+    ...pipelineAggregation(),
+  ]);
+
+  if (!messagePayload)
+    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Internal server error');
+
+  // 5️⃣ Aggregate updated chat
+  const [chatPayload] = await chatModel.aggregate([
+    { $match: { _id: new mongoose.Types.ObjectId(chatId) } },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'participants',
+        foreignField: '_id',
+        as: 'participants',
+        pipeline: [
+          {
+            $project: {
+              password: 0,
+              refreshToken: 0,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $lookup: {
+        from: 'chatmessages',
+        localField: 'lastMessage',
+        foreignField: '_id',
+        as: 'lastMessage',
+        pipeline: [
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'sender',
+              foreignField: '_id',
+              as: 'sender',
+              pipeline: [{ $project: { username: 1, avatar: 1 } }],
+            },
+          },
+          { $addFields: { sender: { $first: '$sender' } } },
+        ],
+      },
+    },
+    { $addFields: { lastMessage: { $first: '$lastMessage' } } },
+  ]);
+
+  // 6️⃣ Emit events to the chat room
+  const io = req.app.get('io');
+
+  if (io) {
+    // 🚚 Delivered logic (online + inside chat room)
+    const deliveredNow = [];
+    const messageId = createdPollingVoteMessage._id;
+
+    for (const participantId of chat.participants) {
+      if (participantId.equals(req.user._id)) continue;
+
+      const sockets = onlineUsers.get(participantId.toString());
+      if (!sockets) continue;
+
+      for (const socketId of sockets) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket?.rooms.has(`chat:${chatId}`)) {
+          deliveredNow.push(participantId.toString());
+          break;
+        }
+      }
+    }
+
+    if (deliveredNow.length) {
+      await messageModel.findByIdAndUpdate(messageId, {
+        $addToSet: {
+          deliveredTo: {
+            $each: deliveredNow.map((id) => id.toString()),
+          },
+        },
+        $set: { status: 'delivered' },
+      });
+
+      messagePayload.status = 'delivered';
+      messagePayload.deliveredTo = deliveredNow.map((id) => id.toString());
+
+      await notifyChatParticipants({
+        io,
+        chat,
+        actorId: req.user._id,
+        event: SocketEventEnum.MESSAGE_DELIVERED_EVENT,
+        payload: {
+          chatId,
+          messageId: createdPollingVoteMessage._id,
+          deliveredTo: deliveredNow.map((id) => id.toString()),
+        },
+      });
+    }
+
+    await Promise.all([
+      notifyChatParticipants({
+        io,
+        chat,
+        actorId: req.user._id,
+        event: SocketEventEnum.NEW_MESSAGE_RECEIVED_EVENT,
+        payload: messagePayload,
+      }),
+
+      notifyChatParticipants({
+        io,
+        chat,
+        actorId: req.user._id,
+        event: SocketEventEnum.UPDATE_CHAT_LAST_MESSAGE_EVENT,
+        payload: chatPayload,
+      }),
+    ]);
+  }
+
+  return new ApiResponse(StatusCodes.CREATED, 'Poll created successfully', {});
 });
 
 export const createMessage = asyncHandler(async (req, res) => {
@@ -302,6 +585,7 @@ export const createMessage = asyncHandler(async (req, res) => {
   // 1️⃣ Create message
   const message = await messageModel.create({
     content: content || '',
+    contentType: 'text-file',
     sender: req.user._id,
     chat: chatId,
     attachments,
@@ -737,6 +1021,7 @@ export const replyToMessage = asyncHandler(async (req, res) => {
     sender: req.user._id,
     chat: chatId,
     replyId: messageId,
+    contentType: 'text-file',
     attachments,
     mentions: Array.isArray(parsedMentions) ? parsedMentions : [],
   });

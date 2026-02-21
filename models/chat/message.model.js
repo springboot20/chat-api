@@ -6,6 +6,36 @@ const messageSchema = new Schema(
       type: String,
     },
 
+    contentType: {
+      type: String,
+      enum: ['text-file', 'polling', 'event', 'contact'],
+      default: 'text-file',
+    },
+
+    polling: {
+      type: {
+        questionTitle: {
+          type: String,
+        },
+        options: {
+          type: [
+            {
+              optionValue: String,
+              responses: [
+                {
+                  type: Schema.Types.ObjectId,
+                  ref: 'User',
+                },
+              ],
+            },
+          ],
+          default: [],
+        },
+        allowMultipleAnswer: Boolean,
+      },
+      default: {},
+    },
+
     status: {
       type: String,
       enum: ['sent', 'delivered', 'seen'],

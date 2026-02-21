@@ -37,6 +37,8 @@ export const SocketEventEnum = {
   USER_WENT_OFFLINE_EVENT: 'userWentOffline',
   CHECK_ONLINE_STATUS_EVENT: 'checkOnlineStatus',
   ONLINE_STATUS_RESPONSE_EVENT: 'onlineStatusResponse',
+
+  POLL_VOTE_UPDATED: 'poll-vote-updated',
 };
 
 export const AvailableSocketEvents = Object.values(SocketEventEnum);

@@ -14,6 +14,12 @@ router
   .get(mongoPathVariableValidation('chatId'), validate, messageController.getAllChats)
   .post(upload.fields([{ name: 'attachments' }]), messageController.createMessage);
 
+router.route('/:chatId/polling-vote').post(messageController.createPollingVote);
+
+router
+  .route('/:chatId/:messageId/polling-vote/vote/:optionId')
+  .patch(messageController.toggleVoteToPollingVote);
+
 router
   .route('/:chatId/:messageId/reply')
   .patch(upload.fields([{ name: 'attachments' }]), messageController.replyToMessage);
