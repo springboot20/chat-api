@@ -464,7 +464,7 @@ export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
   const { chatId, participantId } = req.params;
 
   const chat = await chatModel.findOne({
-    _id: mongoose.Types.Object(chatId),
+    _id: new mongoose.Types.ObjectId(chatId),
     isGroupChat: true,
   });
 
@@ -472,7 +472,7 @@ export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
 
   const existingParticipants = chat.participants;
 
-  if (!existingParticipants.admin.toString() !== req.user._id.toString()) {
+  if (chat.admin.toString() !== req.user._id.toString()) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Only admin can remove participants');
   }
 
