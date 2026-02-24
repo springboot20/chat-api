@@ -28,8 +28,8 @@ const registerUser = asyncHandler(async (req, res) => {
         public_id: cloudinaryResponse?.public_id,
       };
     } else {
-      const avatarLocalPath = getLocalFilePath('/uploads/images', req.file.filename);
-      const avatarStaticPath = getStaticFilePath(req, '/uploads/images', req.file.filename);
+      const avatarLocalPath = getLocalFilePath('images', req.file.filename);
+      const avatarStaticPath = getStaticFilePath(req, 'images', req.file.filename);
 
       avatarImage = {
         url: avatarStaticPath,
@@ -105,12 +105,7 @@ const loginUser = asyncHandler(async (req, res) => {
 
   const { accessToken, refreshToken } = await generateTokens(user._id);
 
-  const loggedInUser = await userModel
-    .findById(user._id)
-    .select('-password -refreshToken -emailVerificationToken -emailVerificationExpiry');
-
   return new ApiResponse(StatusCodes.OK, 'user logged in successfully', {
-    user: loggedInUser,
     tokens: { accessToken, refreshToken },
   });
 });
@@ -249,8 +244,8 @@ const uploadAvatar = asyncHandler(async (req, res) => {
         public_id: cloudinaryResponse?.public_id,
       };
     } else {
-      const avatarLocalPath = getLocalFilePath('/uploads/images', req.file.filename);
-      const avatarStaticPath = getStaticFilePath(req, '/uploads/images', req.file.filename);
+      const avatarLocalPath = getLocalFilePath('images', req.file.filename);
+      const avatarStaticPath = getStaticFilePath(req, 'images', req.file.filename);
 
       avatarImage = {
         url: avatarStaticPath,
@@ -273,9 +268,7 @@ const uploadAvatar = asyncHandler(async (req, res) => {
 
   await userAvatarUpdate.save({ validateBeforeSave: false });
 
-  return new ApiResponse(StatusCodes.OK, 'avatar updated successfully', {
-    userAvatarUpdate,
-  });
+  return new ApiResponse(StatusCodes.OK, 'avatar updated successfully', userAvatarUpdate);
 });
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
@@ -308,8 +301,14 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
-  return new ApiResponse(StatusCodes.OK, 'AccessToken refreshed successfully', {
-    user: req.user,
+  const userId = req.user._id;
+
+  const user = await userModel
+    .findById(userId)
+    .select('-password -refreshToken -emailVerificationToken -emailVerificationExpiry');
+
+  return new ApiResponse(StatusCodes.OK, 'user fetched successfully', {
+    user,
   });
 });
 
