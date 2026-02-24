@@ -52,7 +52,7 @@ router
 
 router
   .route('/change-current-password')
-  .get(
+  .post(
     verifyJWT,
     userChangeCurrentPasswordValidation(),
     validate,
@@ -64,3 +64,5 @@ router.route('/current-user').get(verifyJWT, controllers.authController.getCurre
 router
   .route('/upload-avatar')
   .post(verifyJWT, upload.single('avatar'), controllers.authController.uploadAvatar);
+
+router.route('/update-account').patch(verifyJWT, controllers.authController.updateAccount);

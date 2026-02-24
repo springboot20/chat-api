@@ -99,7 +99,7 @@ const loginUser = asyncHandler(async (req, res) => {
   if (!email && !password)
     throw new ApiError(StatusCodes.BAD_REQUEST, 'please provide an email and a password');
 
-  if (!(await user.isPasswordsCorrect(password))) {
+  if (!(await user.isPasswordCorrect(password))) {
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'invalid password entered');
   }
 
@@ -144,7 +144,7 @@ const resendEmailVerification = asyncHandler(async (req, res) => {
     throw new ApiError(StatusCodes.CONFLICT, 'User email has already been verified', []);
   }
 
-  const { unHashedToken, hashedToken, tokenExpiry } = generateTemporaryToken();
+  const { unHashedToken, hashedToken, tokenExpiry } = user.generateTemporaryToken();
 
   user.emailVerificationExpiry = new Date(tokenExpiry);
   user.emailVerificationToken = hashedToken;
@@ -229,46 +229,33 @@ const resetPassword = asyncHandler(async (req, res) => {
 });
 
 const uploadAvatar = asyncHandler(async (req, res) => {
-  if (!req.file?.filename) throw new ApiError(StatusCodes.BAD_REQUEST, 'No file uploaded', []);
+  // Check if file exists (using path/filename depending on your Multer setup)
+  if (!req.file) throw new ApiError(StatusCodes.BAD_REQUEST, 'No file uploaded');
 
-  let avatarImage = undefined;
+  let avatarImage;
 
-  if (req.file) {
-    if (mode === 'production') {
-      const cloudinaryResponse = await uploadFileToCloudinary(
-        req.file.buffer,
-        `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
-      );
-      avatarImage = {
-        url: cloudinaryResponse?.secure_url,
-        public_id: cloudinaryResponse?.public_id,
-      };
-    } else {
-      const avatarLocalPath = getLocalFilePath('images', req.file.filename);
-      const avatarStaticPath = getStaticFilePath(req, 'images', req.file.filename);
-
-      avatarImage = {
-        url: avatarStaticPath,
-        localPath: avatarLocalPath,
-      };
-    }
+  if (mode === 'production') {
+    // Ensure multer is using MemoryStorage for .buffer to work
+    const cloudinaryResponse = await uploadFileToCloudinary(
+      req.file.buffer,
+      `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
+    );
+    avatarImage = {
+      url: cloudinaryResponse?.secure_url,
+      public_id: cloudinaryResponse?.public_id,
+    };
+  } else {
+    avatarImage = {
+      url: getStaticFilePath(req, 'images', req.file.filename),
+      localPath: getLocalFilePath('images', req.file.filename),
+    };
   }
 
-  const userAvatarUpdate = await userModel
-    .findOneAndUpdate(
-      { _id: req.user._id },
-      {
-        $set: {
-          avatar: avatarImage,
-        },
-      },
-      { new: true },
-    )
+  const updatedUser = await userModel
+    .findOneAndUpdate({ _id: req.user._id }, { $set: { avatar: avatarImage } }, { new: true })
     .select('-password -refreshToken -emailVerificationToken -emailVerificationExpiry');
 
-  await userAvatarUpdate.save({ validateBeforeSave: false });
-
-  return new ApiResponse(StatusCodes.OK, 'avatar updated successfully', userAvatarUpdate);
+  return new ApiResponse(StatusCodes.OK, 'Avatar updated successfully', updatedUser);
 });
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
@@ -323,7 +310,7 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
     throw new ApiError(StatusCodes.NOT_FOUND, 'User not found', []);
   }
 
-  let isPasswordValid = isPasswordCorrect(existingPassword, user.password);
+  let isPasswordValid = user.isPasswordCorrect(existingPassword, user.password);
 
   if (!isPasswordValid) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Existing password does not matched');
@@ -388,6 +375,16 @@ const getUsers = asyncHandler(async (req, res) => {
   });
 });
 
+const updateAccount = asyncHandler(async (req, res) => {
+  const { username, about } = req.body;
+
+  const updatedUser = await userModel
+    .findByIdAndUpdate(req.user._id, { $set: { username, about } }, { new: true })
+    .select('-password -refreshToken -emailVerificationToken -emailVerificationExpiry');
+
+  return new ApiResponse(StatusCodes.OK, 'Account updated successfully', updatedUser);
+});
+
 export {
   registerUser,
   loginUser,
@@ -395,6 +392,7 @@ export {
   uploadAvatar,
   logOut,
   forgotPassword,
+  updateAccount,
   resetPassword,
   refreshAccessToken,
   changeCurrentPassword,
