@@ -22,6 +22,7 @@ const userSchema = new Schema(
     avatar: {
       type: {
         url: String,
+        public_id: String,
         localPath: String,
       },
     },

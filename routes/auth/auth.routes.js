@@ -18,7 +18,12 @@ export const router = Router();
 
 router
   .route('/register')
-  .post(userRegisterValidation(), validate, controllers.authController.registerUser);
+  .post(
+    userRegisterValidation(),
+    validate,
+    upload.single('avatar'),
+    controllers.authController.registerUser,
+  );
 
 router.route('/login').post(userLoginValidation(), validate, controllers.authController.loginUser);
 

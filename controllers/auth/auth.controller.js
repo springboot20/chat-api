@@ -5,19 +5,38 @@ import { ApiResponse } from '../../utils/ApiResponse.js';
 import { ContactModel, userModel } from '../../models/index.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { UserRoles } from '../../constants/constants.js';
-import {
-  generateTokens,
-  getLocalFilePath,
-  getPaginatedData,
-  getStaticFilePath,
-} from '../../helper.js';
-import { withTransaction } from '../../middlewares/mongoose.middleware.js';
-// import { sendMail } from '../../service/email.service.js';
+import { generateTokens, getLocalFilePath, getStaticFilePath } from '../../helper.js';
 import { validateToken } from '../../utils/jwt.js';
 import mongoose from 'mongoose';
+import { uploadFileToCloudinary } from '../../configs/cloudinary.config.js';
+
+const mode = process.env.NODE_ENV;
 
 const registerUser = asyncHandler(async (req, res) => {
   const { username, email, password, role } = req.body;
+
+  let avatarImage = undefined;
+
+  if (req.file) {
+    if (mode === 'production') {
+      const cloudinaryResponse = await uploadFileToCloudinary(
+        req.file.buffer,
+        `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
+      );
+      avatarImage = {
+        url: cloudinaryResponse?.secure_url,
+        public_id: cloudinaryResponse?.public_id,
+      };
+    } else {
+      const avatarLocalPath = getLocalFilePath('/uploads/images', req.file.filename);
+      const avatarStaticPath = getStaticFilePath(req, '/uploads/images', req.file.filename);
+
+      avatarImage = {
+        url: avatarStaticPath,
+        localPath: avatarLocalPath,
+      };
+    }
+  }
 
   const existingUser = await userModel.findOne({
     $or: [{ email }, { username }],
@@ -39,6 +58,8 @@ const registerUser = asyncHandler(async (req, res) => {
 
   user.emailVerificationToken = hashedToken;
   user.emailVerificationExpiry = tokenExpiry;
+
+  user.avatar = avatarImage;
 
   await user.save({ validateBeforeSave: false });
 
@@ -94,166 +115,170 @@ const loginUser = asyncHandler(async (req, res) => {
   });
 });
 
-const verifyEmail = asyncHandler(
-  withTransaction(async (req, res, session) => {
-    const { verifyLink: token } = req.params;
+const verifyEmail = asyncHandler(async (req, res) => {
+  const { verifyLink: token } = req.params;
 
-    if (!token) throw new ApiError(StatusCodes.BAD_REQUEST, 'Verification token is missing', []);
-    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+  if (!token) throw new ApiError(StatusCodes.BAD_REQUEST, 'Verification token is missing', []);
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
-    const verifiedUser = await userModel.findOne({
-      emailVerificationToken: hashedToken,
-      emailVerificationExpiry: { $gte: Date.now() },
-    });
+  const verifiedUser = await userModel.findOne({
+    emailVerificationToken: hashedToken,
+    emailVerificationExpiry: { $gte: Date.now() },
+  });
 
-    verifiedUser.emailVerificationToken = undefined;
-    verifiedUser.emailVerificationExpiry = undefined;
+  verifiedUser.emailVerificationToken = undefined;
+  verifiedUser.emailVerificationExpiry = undefined;
 
-    verifiedUser.isEmailVerified = true;
+  verifiedUser.isEmailVerified = true;
 
-    await verifiedUser.save({ validateBeforeSaving: false, session });
+  await verifiedUser.save({ validateBeforeSaving: false });
 
-    return new ApiResponse(StatusCodes.OK, 'Email verified', {
-      isEmailVerified: true,
-    });
-  }),
-);
+  return new ApiResponse(StatusCodes.OK, 'Email verified', {
+    isEmailVerified: true,
+  });
+});
 
-const resendEmailVerification = asyncHandler(
-  withTransaction(async (req, res, session) => {
-    const user = await userModel.findById(req.user._id);
+const resendEmailVerification = asyncHandler(async (req, res) => {
+  const user = await userModel.findById(req.user._id);
 
-    if (!user) {
-      throw new ApiError(StatusCodes.NOT_FOUND, 'User does not exists', []);
-    }
+  if (!user) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'User does not exists', []);
+  }
 
-    if (user.isEmailVerified) {
-      throw new ApiError(StatusCodes.CONFLICT, 'User email has already been verified', []);
-    }
+  if (user.isEmailVerified) {
+    throw new ApiError(StatusCodes.CONFLICT, 'User email has already been verified', []);
+  }
 
-    const { unHashedToken, hashedToken, tokenExpiry } = generateTemporaryToken();
+  const { unHashedToken, hashedToken, tokenExpiry } = generateTemporaryToken();
 
-    user.emailVerificationExpiry = new Date(tokenExpiry);
-    user.emailVerificationToken = hashedToken;
+  user.emailVerificationExpiry = new Date(tokenExpiry);
+  user.emailVerificationToken = hashedToken;
 
-    await user.save({ validateBeforeSave: false, session });
+  await user.save({ validateBeforeSave: false });
 
-    const verifyLink = `${req.protocol}://${req.get('host')}/api/v1/verify-email/${unHashedToken}`;
+  const verifyLink = `${req.protocol}://${req.get('host')}/api/v1/verify-email/${unHashedToken}`;
 
-    // await sendMail(user?.email, 'Email verification', { username: user?.username, verificationLink: verifyLink }, 'email-verification');
-    return new ApiResponse(StatusCodes.OK, 'User registration successful', {});
-  }),
-);
+  // await sendMail(user?.email, 'Email verification', { username: user?.username, verificationLink: verifyLink }, 'email-verification');
+  return new ApiResponse(StatusCodes.OK, 'User registration successful', {});
+});
 
 const logOut = asyncHandler(
-  withTransaction(
-    /**
-     *
-     * @param {import("express").Request} req
-     * @param {import("express").Response} res
-     * @param {mongoose.Session} session
-     * @returns
-     */
-    async (req, res, session) => {
-      await userModel.findOneAndUpdate(
-        { _id: req.user._id },
-        {
-          $set: {
-            refreshToken: undefined,
-          },
-        },
-        { new: true },
-      );
-
-      return new ApiResponse(StatusCodes.OK, 'you have successfully logged out');
-    },
-  ),
-);
-
-const forgotPassword = asyncHandler(
-  withTransaction(async (req, res, session) => {
-    const { email } = req.body;
-
-    const user = await userModel.findOne({ email });
-    if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
-
-    const { unHashedToken, hashedToken, token } = user.generateTemporaryToken();
-
-    user.forgotPasswordToken = hashedToken;
-    user.forgotPasswordExpiry = token;
-
-    const resetLink = `${req.protocol}//:${req.get('host')}/api/v1/reset-password/${unHashedToken}`;
-    // await sendMail(user.email, 'Password reset', { resetLink, username: user.username }, 'reset-password');
-
-    await user.save({ validateBeforeSave: false, session });
-    return new ApiResponse(StatusCodes.OK, 'Password reset link sent to your email');
-  }),
-);
-
-const resetPassword = asyncHandler(
-  withTransaction(async (req, res, session) => {
-    const {
-      params: { resetToken: token },
-    } = req;
-    const { password } = req.body;
-
-    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-
-    const user = await userModel.findOne({
-      _id: req.user._id,
-      resetToken: hashedToken,
-      resetTokenExpiry: { $gte: Date.now() },
-    });
-    if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Token is invalid or expired', []);
-
-    const updatedUser = await userModel.findByIdAndUpdate(
-      req.user._id,
+  /**
+   *
+   * @param {import("express").Request} req
+   * @param {import("express").Response} res
+   * @returns
+   */
+  async (req, res) => {
+    await userModel.findOneAndUpdate(
+      { _id: req.user._id },
       {
         $set: {
-          password: password,
-          forgotPasswordToken: undefined,
-          forgotPasswordExpiry: undefined,
+          refreshToken: undefined,
         },
       },
       { new: true },
     );
 
-    await updatedUser.save({ validateBeforeSave: false, session });
-    return new ApiResponse(StatusCodes.OK, 'Password reset successfully', {});
-  }),
+    return new ApiResponse(StatusCodes.OK, 'you have successfully logged out');
+  },
 );
 
-const uploadAvatar = asyncHandler(
-  withTransaction(async (req, res, session) => {
-    if (!req.file?.filename) throw new ApiError(StatusCodes.BAD_REQUEST, 'No file uploaded', []);
+const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.body;
 
-    const avatarLocalPath = getLocalFilePath(req.file.filename);
-    const avatarStaticPath = getStaticFilePath(req, req.file.filename);
+  const user = await userModel.findOne({ email });
+  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
 
-    const userAvatarUpdate = await userModel
-      .findOneAndUpdate(
-        { _id: req.user._id },
-        {
-          $set: {
-            avatar: {
-              url: avatarStaticPath,
-              localPath: avatarLocalPath,
-            },
-          },
+  const { unHashedToken, hashedToken, token } = user.generateTemporaryToken();
+
+  user.forgotPasswordToken = hashedToken;
+  user.forgotPasswordExpiry = token;
+
+  const resetLink = `${req.protocol}//:${req.get('host')}/api/v1/reset-password/${unHashedToken}`;
+  // await sendMail(user.email, 'Password reset', { resetLink, username: user.username }, 'reset-password');
+
+  await user.save({ validateBeforeSave: false });
+  return new ApiResponse(StatusCodes.OK, 'Password reset link sent to your email');
+});
+
+const resetPassword = asyncHandler(async (req, res) => {
+  const {
+    params: { resetToken: token },
+  } = req;
+  const { password } = req.body;
+
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+  const user = await userModel.findOne({
+    _id: req.user._id,
+    resetToken: hashedToken,
+    resetTokenExpiry: { $gte: Date.now() },
+  });
+  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Token is invalid or expired', []);
+
+  const updatedUser = await userModel.findByIdAndUpdate(
+    req.user._id,
+    {
+      $set: {
+        password: password,
+        forgotPasswordToken: undefined,
+        forgotPasswordExpiry: undefined,
+      },
+    },
+    { new: true },
+  );
+
+  await updatedUser.save({ validateBeforeSave: false });
+  return new ApiResponse(StatusCodes.OK, 'Password reset successfully', {});
+});
+
+const uploadAvatar = asyncHandler(async (req, res) => {
+  if (!req.file?.filename) throw new ApiError(StatusCodes.BAD_REQUEST, 'No file uploaded', []);
+
+  let avatarImage = undefined;
+
+  if (req.file) {
+    if (mode === 'production') {
+      const cloudinaryResponse = await uploadFileToCloudinary(
+        req.file.buffer,
+        `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
+      );
+      avatarImage = {
+        url: cloudinaryResponse?.secure_url,
+        public_id: cloudinaryResponse?.public_id,
+      };
+    } else {
+      const avatarLocalPath = getLocalFilePath('/uploads/images', req.file.filename);
+      const avatarStaticPath = getStaticFilePath(req, '/uploads/images', req.file.filename);
+
+      avatarImage = {
+        url: avatarStaticPath,
+        localPath: avatarLocalPath,
+      };
+    }
+  }
+
+  const userAvatarUpdate = await userModel
+    .findOneAndUpdate(
+      { _id: req.user._id },
+      {
+        $set: {
+          avatar: avatarImage,
         },
-        { new: true },
-      )
-      .select('-password -refreshToken -emailVerificationToken -emailVerificationExpiry');
+      },
+      { new: true },
+    )
+    .select('-password -refreshToken -emailVerificationToken -emailVerificationExpiry');
 
-    await userAvatar.save({ validateBeforeSave: false, session });
+  await userAvatarUpdate.save({ validateBeforeSave: false });
 
-    return new ApiResponse(StatusCodes.OK, 'avatar updated successfully', {
-      userAvatarUpdate,
-    });
-  }),
-);
+  return new ApiResponse(StatusCodes.OK, 'avatar updated successfully', {
+    userAvatarUpdate,
+  });
+});
 
-const refreshAccessToken = asyncHandler(async (req, res, session) => {
+const refreshAccessToken = asyncHandler(async (req, res) => {
   const {
     body: { inComingRefreshToken },
   } = req;
@@ -273,7 +298,7 @@ const refreshAccessToken = asyncHandler(async (req, res, session) => {
 
   const { accessToken, refreshToken } = await generateTokens(res, user?._id.toString());
   user.refreshToken = refreshToken;
-  await user.save({ session });
+  await user.save({});
 
   return new ApiResponse(
     StatusCodes.OK,
@@ -288,30 +313,28 @@ const getCurrentUser = asyncHandler(async (req, res) => {
   });
 });
 
-const changeCurrentPassword = asyncHandler(
-  withTransaction(async (req, res, session) => {
-    let {
-      body: { existingPassword, newPassword },
-    } = req;
+const changeCurrentPassword = asyncHandler(async (req, res) => {
+  let {
+    body: { existingPassword, newPassword },
+  } = req;
 
-    const user = await userModel.findById(req.user._id);
+  const user = await userModel.findById(req.user._id);
 
-    if (!user) {
-      throw new ApiError(StatusCodes.NOT_FOUND, 'User not found', []);
-    }
+  if (!user) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'User not found', []);
+  }
 
-    let isPasswordValid = isPasswordCorrect(existingPassword, user.password);
+  let isPasswordValid = isPasswordCorrect(existingPassword, user.password);
 
-    if (!isPasswordValid) {
-      throw new ApiError(StatusCodes.BAD_REQUEST, 'Existing password does not matched');
-    }
+  if (!isPasswordValid) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Existing password does not matched');
+  }
 
-    user.password = newPassword;
-    await user.save({ validateBeforeSave: false, session });
+  user.password = newPassword;
+  await user.save({ validateBeforeSave: false });
 
-    return new ApiResponse(StatusCodes.OK, 'Current password changed', {});
-  }),
-);
+  return new ApiResponse(StatusCodes.OK, 'Current password changed', {});
+});
 
 const getUsers = asyncHandler(async (req, res) => {
   const userId = req.user._id;
