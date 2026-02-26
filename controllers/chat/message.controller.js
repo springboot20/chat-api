@@ -296,24 +296,23 @@ export const toggleVoteToPollingVote = asyncHandler(async (req, res) => {
 
   const allowMultiple = message.polling.allowMultipleAnswer;
 
-  // 1. If multiple answers are NOT allowed, remove user from all other options first
-  if (!allowMultiple) {
-    message.polling.options.forEach((opt) => {
-      opt.responses = opt.responses.filter((id) => !id.equals(userId));
-    });
-  }
-
-  // 2. Find the target option
+  // 1. Find the target option
   const targetOption = message.polling.options.find((opt) => opt._id.toString() === optionId);
   if (!targetOption) throw new ApiError(StatusCodes.NOT_FOUND, 'Option not found');
 
   const hasVotedForThis = targetOption.responses.some((id) => id.equals(userId));
 
   if (hasVotedForThis) {
-    // Un-vote
+    // 2. Un-vote (always allowed)
     targetOption.responses = targetOption.responses.filter((id) => !id.equals(userId));
   } else {
-    // Add vote
+    // 3. Add vote
+    // If multiple answers are NOT allowed, remove user from all other options first
+    if (!allowMultiple) {
+      message.polling.options.forEach((opt) => {
+        opt.responses = opt.responses.filter((id) => !id.equals(userId));
+      });
+    }
     targetOption.responses.push(userId);
   }
 
