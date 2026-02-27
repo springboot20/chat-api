@@ -7,7 +7,10 @@ import mongoose from 'mongoose';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { SocketEventEnum } from '../../constants/constants.js';
 import { isUserOnline, notifyChatParticipants, onlineUsers } from '../../socketIo/socket.js';
-import { uploadFileToCloudinary } from '../../configs/cloudinary.config.js';
+import {
+  deleteFileFromCloudinary,
+  uploadFileToCloudinary,
+} from '../../configs/cloudinary.config.js';
 
 const mode = process.env.NODE_ENV;
 
@@ -715,8 +718,13 @@ export const deleteChatMessage = asyncHandler(async (req, res) => {
   const message = await messageModel.findOne({ chat: chat._id, _id: messageId });
   if (!message) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat message not found');
 
-  // Remove local files if any
-  message.attachments.forEach((file) => removeLocalFile(file.localPath));
+  if (mode === 'production') {
+    message.attachments.forEach(async (file) => await deleteFileFromCloudinary(file.public_id));
+  } else {
+    message.attachments.forEach((file) => removeLocalFile(file.localPath));
+  }
+
+  console.log(message.attachments.forEach((file) => removeLocalFile(file.localPath)));
 
   const updatedMessage = await messageModel.findOneAndUpdate(
     { _id: messageId, chat: chatId },
