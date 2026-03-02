@@ -14,6 +14,8 @@ import passport from 'passport';
 
 import { dataBaseConnection } from './db/connection.js';
 import { initializeSocket } from './socketIo/socket.js';
+import { RedisStore } from 'connect-redis';
+import redisClient from './configs/redis.config.js';
 
 import { errorHandler } from './middlewares/error.middleware.js';
 import { router as authRouter } from './routes/auth/auth.routes.js';
@@ -22,10 +24,28 @@ import { router as messageRouter } from './routes/chat/message.routes.js';
 import { router as statusRouter } from './routes/chat/status.routes.js';
 import { router as contactRouter } from './routes/contact/contact.routes.js';
 import { setupStatusCleanupJob } from './service/cron-jobs.js';
+import { rateLimit } from 'express-rate-limit';
+import { RedisStore as RateLimitRedisStore } from 'rate-limit-redis';
 
 const app = express();
 const PORT = process.env.PORT || 4020;
 const httpServer = http.createServer(app);
+
+// ...
+
+// Global rate limiter
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new RateLimitRedisStore({
+    sendCommand: (...args) => redisClient.sendCommand(args),
+  }),
+});
+
+// Apply limiter to all API routes
+app.use('/api/', limiter);
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -87,12 +107,20 @@ const imagesDir = path.join(uploadsDir, 'images');
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
+
 // Configure session
 app.use(
   session({
+    store: new RedisStore({ client: redisClient, prefix: 'session:' }),
     secret: process.env.SESSION_SECRET || 'fallback-secret-key',
     resave: false,
     saveUninitialized: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === 'production', // true on Render (HTTPS)
+      httpOnly: true,
+      maxAge: 1000 * 60 * 60 * 24, // 1 day
+    },
   }),
 );
 app.use(passport.initialize());

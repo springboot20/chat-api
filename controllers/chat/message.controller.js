@@ -6,11 +6,12 @@ import { getLocalFilePath, getStaticFilePath, removeLocalFile } from '../../help
 import mongoose from 'mongoose';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { SocketEventEnum } from '../../constants/constants.js';
-import { isUserOnline, notifyChatParticipants, onlineUsers } from '../../socketIo/socket.js';
+import { getUserSockets, isUserOnline, notifyChatParticipants } from '../../socketIo/socket.js';
 import {
   deleteFileFromCloudinary,
   uploadFileToCloudinary,
 } from '../../configs/cloudinary.config.js';
+import { getOrSetCache, invalidateCache } from '../../utils/cache.js';
 
 const mode = process.env.NODE_ENV;
 
@@ -265,27 +266,32 @@ const pipelineAggregation = () => {
 
 export const getAllChats = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
+  const cacheKey = `chat_messages:${chatId}`;
 
-  const chat = await chatModel.findById(chatId);
+  const messageData = await getOrSetCache(cacheKey, async () => {
+    const chat = await chatModel.findById(chatId);
 
-  if (!chat) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
-  }
+    if (!chat) {
+      throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
+    }
 
-  if (!chat.participants.includes(req.user._id)) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'You are not a participant of this chat');
-  }
+    if (!chat.participants.includes(req.user._id)) {
+      throw new ApiError(StatusCodes.UNAUTHORIZED, 'You are not a participant of this chat');
+    }
 
-  const messages = await messageModel.aggregate([
-    {
-      $match: {
-        chat: new mongoose.Types.ObjectId(chatId),
+    const messages = await messageModel.aggregate([
+      {
+        $match: {
+          chat: new mongoose.Types.ObjectId(chatId),
+        },
       },
-    },
-    ...pipelineAggregation(),
-  ]);
+      ...pipelineAggregation(),
+    ]);
 
-  return new ApiResponse(200, 'Messages fetched successfully', { chatId, messages } || []);
+    return { chatId, messages } || [];
+  });
+
+  return new ApiResponse(200, 'Messages fetched successfully', messageData);
 });
 
 export const toggleVoteToPollingVote = asyncHandler(async (req, res) => {
@@ -320,6 +326,7 @@ export const toggleVoteToPollingVote = asyncHandler(async (req, res) => {
   }
 
   await message.save();
+  invalidateCache(`chat_messages:${chatId}`);
 
   const [messagePayload] = await messageModel.aggregate([
     { $match: { _id: message._id } },
@@ -434,8 +441,8 @@ export const createPollingVote = asyncHandler(async (req, res) => {
     for (const participantId of chat.participants) {
       if (participantId.equals(req.user._id)) continue;
 
-      const sockets = onlineUsers.get(participantId.toString());
-      if (!sockets) continue;
+      const sockets = await getUserSockets(participantId.toString());
+      if (!sockets || sockets.length === 0) continue;
 
       for (const socketId of sockets) {
         const socket = io.sockets.sockets.get(socketId);
@@ -489,6 +496,12 @@ export const createPollingVote = asyncHandler(async (req, res) => {
         payload: chatPayload,
       }),
     ]);
+
+    // Invalidate caches
+    invalidateCache(`chat_messages:${chatId}`);
+    chat.participants.forEach((participantId) => {
+      invalidateCache(`user_chats:${participantId}`);
+    });
   }
 
   return new ApiResponse(StatusCodes.CREATED, 'Poll created successfully', {});
@@ -653,8 +666,8 @@ export const createMessage = asyncHandler(async (req, res) => {
     for (const participantId of chat.participants) {
       if (participantId.equals(req.user._id)) continue;
 
-      const sockets = onlineUsers.get(participantId.toString());
-      if (!sockets) continue;
+      const sockets = await getUserSockets(participantId.toString());
+      if (!sockets || sockets.length === 0) continue;
 
       for (const socketId of sockets) {
         const socket = io.sockets.sockets.get(socketId);
@@ -704,6 +717,12 @@ export const createMessage = asyncHandler(async (req, res) => {
         payload: chatPayload,
       }),
     ]);
+
+    // Invalidate caches
+    invalidateCache(`chat_messages:${chatId}`);
+    chat.participants.forEach((participantId) => {
+      invalidateCache(`user_chats:${participantId}`);
+    });
   }
 
   return new ApiResponse(StatusCodes.OK, 'Message created successfully', messagePayload);
@@ -751,6 +770,12 @@ export const deleteChatMessage = asyncHandler(async (req, res) => {
       payload: messagePayload,
     });
   }
+
+  // Invalidate caches
+  invalidateCache(`chat_messages:${chatId}`);
+  chat.participants.forEach((participantId) => {
+    invalidateCache(`user_chats:${participantId}`);
+  });
 
   return new ApiResponse(StatusCodes.OK, 'Message deleted successfully', messagePayload);
 });
@@ -871,7 +896,7 @@ export const reactToMessage = asyncHandler(async (req) => {
 
     for (const participantId of chat.participants) {
       const participantIdStr = participantId.toString();
-      const isOnline = isUserOnline(participantIdStr);
+      const isOnline = await isUserOnline(participantIdStr);
 
       if (isOnline) {
         io.to(`user:${participantIdStr}`).emit(
@@ -918,7 +943,7 @@ export const reactToMessage = asyncHandler(async (req) => {
 
       if (chatPayload) {
         for (const participantId of chat.participants) {
-          if (isUserOnline(participantId.toString())) {
+          if (await isUserOnline(participantId.toString())) {
             io.to(`user:${participantId}`).emit(
               SocketEventEnum.UPDATE_CHAT_LAST_MESSAGE_EVENT,
               chatPayload,
@@ -1092,8 +1117,8 @@ export const replyToMessage = asyncHandler(async (req, res) => {
     for (const participantId of chat.participants) {
       if (participantId.equals(req.user._id)) continue;
 
-      const sockets = onlineUsers.get(participantId.toString());
-      if (!sockets) continue;
+      const sockets = await getUserSockets(participantId.toString());
+      if (!sockets || sockets.length === 0) continue;
 
       for (const socketId of sockets) {
         const socket = io.sockets.sockets.get(socketId);
@@ -1190,6 +1215,8 @@ export const markMessagesAsSeen = asyncHandler(async (req, res) => {
       messageIds,
     },
   });
+
+  invalidateCache(`chat_messages:${chatId}`);
 
   return new ApiResponse(StatusCodes.OK, 'Messages marked as seen');
 });

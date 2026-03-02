@@ -15,6 +15,7 @@
     "bcrypt": "^5.1.1",
     "body-parser": "^1.20.2",
     "cloudinary": "^2.9.0",
+    "connect-redis": "^9.0.0",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^16.3.1",
@@ -32,6 +33,8 @@
     "nodemailer": "^6.9.7",
     "nodemailer-express-handlebars": "^6.1.0",
     "passport": "^0.7.0",
+    "rate-limit-redis": "^4.3.1",
+    "redis": "^5.11.0",
     "socket.io": "^4.7.2"
   },
   "devDependencies": {

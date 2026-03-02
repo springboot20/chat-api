@@ -7,6 +7,7 @@ import mongoose from 'mongoose';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { mountNewChatEvent } from '../../socketIo/socket.js';
 import { SocketEventEnum } from '../../constants/constants.js';
+import { getOrSetCache, invalidateCache } from '../../utils/cache.js';
 
 /**
  * @description Utility function which returns the pipeline stages to structure the chat schema with common lookups
@@ -176,6 +177,7 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
   if (io) {
     chatPayload.participants.forEach((participant) => {
       io.to(`user:${participant._id}`).emit(SocketEventEnum.NEW_CHAT_EVENT, chatPayload);
+      invalidateCache(`user_chats:${participant._id}`);
     });
   }
 
@@ -256,6 +258,7 @@ export const createGroupChat = asyncHandler(async (req, res) => {
       // Logic assumes participant object has _id after aggregation
       const participantId = participant._id || participant;
       io.to(`user:${participantId}`).emit(SocketEventEnum.NEW_CHAT_EVENT, groupChatPayload);
+      invalidateCache(`user_chats:${participantId}`);
     });
   }
 
@@ -301,7 +304,12 @@ export const changeGroupName = asyncHandler(async (req, res) => {
   const groupPayload = chat[0];
 
   const io = req.app.get('io');
-  if (io) io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
+  if (io) {
+    io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
+    groupPayload.participants.forEach((participant) => {
+      invalidateCache(`user_chats:${participant._id || participant}`);
+    });
+  }
 
   return new ApiResponse(StatusCodes.OK, 'Group chat name updated', groupPayload);
 });
@@ -354,6 +362,9 @@ export const leaveGroupChat = asyncHandler(async (req, res) => {
   const io = req.app.get('io');
   if (io) {
     io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
+    groupPayload.participants.forEach((participant) => {
+      invalidateCache(`user_chats:${participant._id || participant}`);
+    });
   }
 
   return new ApiResponse(StatusCodes.OK, 'You have left the group', groupPayload);
@@ -378,6 +389,7 @@ export const deleteOneOnOneChat = asyncHandler(async (req, res) => {
   if (io) {
     chatPayload.participants.forEach((participant) => {
       io.to(`user:${participant._id}`).emit(SocketEventEnum.LEAVE_CHAT_EVENT, chatPayload);
+      invalidateCache(`user_chats:${participant._id}`);
     });
   }
 
@@ -406,6 +418,7 @@ export const deleteGroupChat = asyncHandler(async (req, res) => {
   if (io) {
     groupPayload.participants.forEach((participant) => {
       io.to(`user:${participant._id}`).emit(SocketEventEnum.LEAVE_CHAT_EVENT, groupPayload);
+      invalidateCache(`user_chats:${participant._id}`);
     });
   }
 
@@ -455,7 +468,12 @@ export const addParticipantToGroupChat = asyncHandler(async (req, res) => {
   const groupPayload = updatedGroup[0];
 
   const io = req.app.get('io');
-  if (io) io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
+  if (io) {
+    io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
+    groupPayload.participants.forEach((participant) => {
+      invalidateCache(`user_chats:${participant._id || participant}`);
+    });
+  }
 
   return new ApiResponse(StatusCodes.OK, 'Participant added successfully', groupPayload);
 });
@@ -503,25 +521,35 @@ export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
   const groupPayload = updatedGroup[0];
 
   const io = req.app.get('io');
-  if (io) io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
+  if (io) {
+    io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
+    groupPayload.participants.forEach((participant) => {
+      invalidateCache(`user_chats:${participant._id || participant}`);
+    });
+  }
 
   return new ApiResponse(StatusCodes.OK, 'Participant removed successfully', groupPayload);
 });
 
 export const getAllChats = asyncHandler(async (req, res) => {
-  const chats = await chatModel.aggregate([
-    {
-      $match: {
-        participants: { $elemMatch: { $eq: req.user._id } }, // get all chats that have logged in user as a participant
+  const userId = req.user._id;
+  const cacheKey = `user_chats:${userId}`;
+
+  const chats = await getOrSetCache(cacheKey, async () => {
+    return await chatModel.aggregate([
+      {
+        $match: {
+          participants: { $elemMatch: { $eq: req.user._id } }, // get all chats that have logged in user as a participant
+        },
       },
-    },
-    {
-      $sort: {
-        updatedAt: -1,
+      {
+        $sort: {
+          updatedAt: -1,
+        },
       },
-    },
-    ...pipelineAggregation(),
-  ]);
+      ...pipelineAggregation(),
+    ]);
+  });
 
   return new ApiResponse(200, 'User chats fetched successfully!', chats || []);
 });

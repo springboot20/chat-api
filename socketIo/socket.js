@@ -3,11 +3,17 @@ import { ApiError } from '../utils/ApiError.js';
 import { chatModel, messageModel, userModel } from '../models/index.js';
 import { validateToken } from '../utils/jwt.js';
 import { SocketEventEnum } from '../constants/constants.js';
+import redisClient from '../configs/redis.config.js';
 
-export const onlineUsers = new Map();
+const ONLINE_USERS_KEY = 'online_users';
+const USER_SOCKETS_PREFIX = 'user_sockets:';
 
-export const isUserOnline = (userId) => {
-  return onlineUsers.has(userId.toString());
+export const isUserOnline = async (userId) => {
+  return await redisClient.sIsMember(ONLINE_USERS_KEY, userId.toString());
+};
+
+export const getUserSockets = async (userId) => {
+  return await redisClient.sMembers(`${USER_SOCKETS_PREFIX}${userId.toString()}`);
 };
 
 // ✅ Simplified - just emit to online users, no queuing
@@ -18,7 +24,7 @@ export const notifyChatParticipants = async ({ io, chat, actorId, event, payload
     const userId = participantId.toString();
 
     // Only emit if user is online
-    if (isUserOnline(userId)) {
+    if (await isUserOnline(userId)) {
       io.to(`user:${userId}`).emit(event, payload);
     } else {
       console.log(`📭 User ${userId} is offline, event not sent: ${event}`);
@@ -134,14 +140,11 @@ const initializeSocket = (io) => {
       socket.on(SocketEventEnum.USER_WENT_ONLINE_EVENT, async () => {
         const userId = socket.user._id.toString();
 
-        if (!onlineUsers.has(userId)) {
-          onlineUsers.set(userId, new Set());
-        }
-
-        onlineUsers.get(userId).add(socket.id);
+        // Use Redis to track online user and their sockets
+        await redisClient.sAdd(ONLINE_USERS_KEY, userId);
+        await redisClient.sAdd(`${USER_SOCKETS_PREFIX}${userId}`, socket.id);
 
         console.log(`🟢 User went ONLINE: ${socket.user.username}`);
-        console.log('🟢 Online users:', Array.from(onlineUsers.keys()));
 
         // Broadcast to all users that this user is now online
         socket.broadcast.emit(SocketEventEnum.USER_ONLINE_EVENT, {
@@ -154,32 +157,30 @@ const initializeSocket = (io) => {
       });
 
       // ✅ Listen for explicit USER_WENT_OFFLINE_EVENT from client
-      socket.on(SocketEventEnum.USER_WENT_OFFLINE_EVENT, () => {
+      socket.on(SocketEventEnum.USER_WENT_OFFLINE_EVENT, async () => {
         const userId = socket.user._id.toString();
 
-        if (onlineUsers.has(userId)) {
-          onlineUsers.get(userId).delete(socket.id);
+        await redisClient.sRem(`${USER_SOCKETS_PREFIX}${userId}`, socket.id);
+        const remainingSockets = await redisClient.sCard(`${USER_SOCKETS_PREFIX}${userId}`);
 
-          if (onlineUsers.get(userId).size === 0) {
-            onlineUsers.delete(userId);
+        if (remainingSockets === 0) {
+          await redisClient.sRem(ONLINE_USERS_KEY, userId);
 
-            // Broadcast to all users that this user is now offline
-            socket.broadcast.emit(SocketEventEnum.USER_OFFLINE_EVENT, {
-              userId: userId,
-            });
+          // Broadcast to all users that this user is now offline
+          socket.broadcast.emit(SocketEventEnum.USER_OFFLINE_EVENT, {
+            userId: userId,
+          });
 
-            console.log(`🔴 User went OFFLINE: ${socket.user.username}`);
-            console.log('🟢 Online users:', Array.from(onlineUsers.keys()));
-          }
+          console.log(`🔴 User went OFFLINE: ${socket.user.username}`);
         }
       });
 
       // ✅ Allow clients to check if specific users are online
-      socket.on(SocketEventEnum.CHECK_ONLINE_STATUS_EVENT, ({ userIds }) => {
+      socket.on(SocketEventEnum.CHECK_ONLINE_STATUS_EVENT, async ({ userIds }) => {
         const onlineStatuses = {};
-        userIds.forEach((userId) => {
-          onlineStatuses[userId] = isUserOnline(userId);
-        });
+        for (const userId of userIds) {
+          onlineStatuses[userId] = await isUserOnline(userId);
+        }
 
         socket.emit(SocketEventEnum.ONLINE_STATUS_RESPONSE_EVENT, onlineStatuses);
       });
@@ -204,15 +205,16 @@ const initializeSocket = (io) => {
       /**
        * Disconnect
        */
-      socket.on('disconnect', (reason) => {
+      socket.on('disconnect', async (reason) => {
         console.log(`❌ User ${user.username} disconnected: ${reason}`);
         const userId = socket.user?._id.toString();
 
-        if (userId && onlineUsers.has(userId)) {
-          onlineUsers.get(userId).delete(socket.id);
+        if (userId) {
+          await redisClient.sRem(`${USER_SOCKETS_PREFIX}${userId}`, socket.id);
+          const remainingSockets = await redisClient.sCard(`${USER_SOCKETS_PREFIX}${userId}`);
 
-          if (onlineUsers.get(userId).size === 0) {
-            onlineUsers.delete(userId);
+          if (remainingSockets === 0) {
+            await redisClient.sRem(ONLINE_USERS_KEY, userId);
 
             // Broadcast offline status
             socket.broadcast.emit(SocketEventEnum.USER_OFFLINE_EVENT, {
@@ -224,7 +226,6 @@ const initializeSocket = (io) => {
         }
 
         console.log(`🔴 User disconnected: ${userId}`);
-        console.log('🟢 Online users:', Array.from(onlineUsers.keys()));
 
         try {
           socket.leave(`user:${userId}`);
@@ -260,7 +261,6 @@ const mountLeaveChatEvent = (io, socket) => {
       socket.leave(`chat:${chatId}`);
 
       console.log(`🚪 User ${socket.user.username} left chat ${chatId}`);
-
     } catch (error) {
       console.error('❌ LEAVE_CHAT_EVENT error:', error);
     }
@@ -320,7 +320,7 @@ const mountJoinChatEvent = (io, socket) => {
 
         for (const senderId of senderIds) {
           // Only notify if sender is online
-          if (isUserOnline(senderId)) {
+          if (await isUserOnline(senderId)) {
             io.to(`user:${senderId}`).emit(SocketEventEnum.MESSAGE_SEEN_EVENT, {
               chatId,
               messageIds,
