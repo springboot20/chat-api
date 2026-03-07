@@ -77,11 +77,18 @@ export const removeUnusedMulterFilesOnError = (req) => {
 export const removeLocalFile = (localPath) => {
   if (!localPath) return;
 
-  if (fs.existsSync(localPath)) {
-    fs.unlink(localPath, (err) => {
-      if (err) console.error('Error occurred while removing file:', err);
-      else console.log(`Removed local file: ${localPath}`);
-    });
+  // Ensure we have an absolute path if multer gives us one
+  const absolutePath = path.isAbsolute(localPath)
+    ? localPath
+    : path.resolve(process.cwd(), localPath);
+
+  if (fs.existsSync(absolutePath)) {
+    try {
+      fs.unlinkSync(absolutePath);
+      console.log(`Successfully cleaned up: ${path.basename(absolutePath)}`);
+    } catch (err) {
+      console.error(`Cleanup failed for ${absolutePath}:`, err);
+    }
   }
 };
 

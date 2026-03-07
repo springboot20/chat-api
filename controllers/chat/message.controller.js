@@ -2,7 +2,12 @@ import { StatusCodes } from 'http-status-codes';
 import { ApiError } from '../../utils/ApiError.js';
 import { ApiResponse } from '../../utils/ApiResponse.js';
 import { chatModel, messageModel } from '../../models/index.js';
-import { getLocalFilePath, getStaticFilePath, removeLocalFile } from '../../helper.js';
+import {
+  getLocalFilePath,
+  getStaticFilePath,
+  removeLocalFile,
+  removeUnusedMulterFilesOnError,
+} from '../../helper.js';
 import mongoose from 'mongoose';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { SocketEventEnum } from '../../constants/constants.js';
@@ -520,77 +525,60 @@ export const createMessage = asyncHandler(async (req, res) => {
   const attachments = [];
 
   if (req.files?.attachments?.length > 0) {
-    if (mode === 'production') {
-      const uploadPromises = req.files.attachments.map(async (attachment) => {
-        let category = 'documents';
+    const isProduction = mode === 'production';
 
-        if (attachment.mimetype.startsWith('image/')) {
-          category = 'images';
-        } else if (attachment.mimetype.startsWith('video/')) {
-          category = 'videos';
-        } else if (attachment.mimetype.startsWith('audio/')) {
-          category = 'voices';
+    for (const attachment of req.files.attachments) {
+      let fileType = 'document';
+      let category = 'documents';
+
+      if (attachment.mimetype.startsWith('image/')) {
+        fileType = 'image';
+        category = 'images';
+      } else if (attachment.mimetype.startsWith('video/')) {
+        fileType = 'video';
+        category = 'videos';
+      } else if (attachment.mimetype.startsWith('audio/')) {
+        fileType = 'voice';
+        category = 'voices';
+      }
+
+      let finalUrl = '';
+      let publicId = null;
+
+      try {
+        if (isProduction) {
+          // PRODUCTION: Upload to Cloudinary using file path (NOT buffer)
+          const uploadResult = await uploadFileToCloudinary(
+            attachment.path,
+            `${process.env.CLOUDINARY_BASE_FOLDER}/${category}`,
+          );
+          finalUrl = uploadResult.secure_url;
+          publicId = uploadResult.public_id;
+
+          // CLEANUP: Remove local file after successful cloud upload
+          removeLocalFile(attachment.path);
+        } else {
+          // DEVELOPMENT: Use local path for offline access
+          finalUrl = getStaticFilePath(req, category, attachment.filename);
         }
-
-        return uploadFileToCloudinary(
-          attachment.buffer,
-          `${process.env.CLOUDINARY_BASE_FOLDER}/${category}`,
-        );
-      });
-
-      const uploadResults = await Promise.all(uploadPromises);
-
-      for (let i = 0; i < uploadResults.length; i++) {
-        const attachment = req.files.attachments[i];
-
-        let fileType = 'document';
-
-        if (attachment.mimetype.startsWith('image/')) fileType = 'image';
-        else if (attachment.mimetype.startsWith('video/')) fileType = 'video';
-        else if (attachment.mimetype.startsWith('audio/')) fileType = 'voice';
 
         attachments.push({
-          fileType: fileType,
+          fileType,
           fileName: attachment.originalname,
           fileSize: attachment.size,
-          url: uploadResults[i].secure_url,
-          public_id: uploadResults[i].public_id,
-          duration: audioDuration ? parseInt(audioDuration) : 0,
+          url: finalUrl,
+          public_id: publicId,
+          // Store localPath in dev for database reference if needed
+          localPath: isProduction ? null : getLocalFilePath(category, attachment.filename),
+          duration: fileType === 'voice' ? parseInt(audioDuration) || 0 : 0,
         });
-      }
-    } else {
-      for (const attachment of req.files.attachments) {
-        let fileType = 'document';
-        let category = 'documents';
-
-        if (attachment.mimetype.startsWith('image/')) {
-          fileType = 'image';
-          category = 'images';
-        } else if (attachment.mimetype.startsWith('video/')) {
-          fileType = 'video';
-          category = 'videos';
-        } else if (attachment.mimetype.startsWith('audio/')) {
-          fileType = 'voice';
-          category = 'voices';
-        }
-
-        const fileUrl = getStaticFilePath(req, category, attachment.filename);
-        const localPath = getLocalFilePath(category, attachment.filename); // ✅ Determine file type
-
-        const attachmentData = {
-          fileType: fileType,
-          fileName: attachment.originalname,
-          fileSize: attachment.size,
-          url: fileUrl,
-          localPath,
-        };
-
-        // ✅ Get duration for voice messages
-        if (fileType === 'voice') {
-          attachmentData.duration = audioDuration ? parseInt(audioDuration) : 0;
-        }
-
-        attachments.push(attachmentData);
+      } catch (error) {
+        // SAFETY: Cleanup all files if any single upload fails to prevent junk on disk
+        removeUnusedMulterFilesOnError(req);
+        throw new ApiError(
+          StatusCodes.INTERNAL_SERVER_ERROR,
+          'File processing failed: ' + error.message,
+        );
       }
     }
   }
@@ -970,77 +958,60 @@ export const replyToMessage = asyncHandler(async (req, res) => {
   const attachments = [];
 
   if (req.files?.attachments?.length > 0) {
-    if (mode === 'production') {
-      const uploadPromises = req.files.attachments.map(async (attachment) => {
-        let category = 'documents';
+    const isProduction = mode === 'production';
 
-        if (attachment.mimetype.startsWith('image/')) {
-          category = 'images';
-        } else if (attachment.mimetype.startsWith('video/')) {
-          category = 'videos';
-        } else if (attachment.mimetype.startsWith('audio/')) {
-          category = 'voices';
+    for (const attachment of req.files.attachments) {
+      let fileType = 'document';
+      let category = 'documents';
+
+      if (attachment.mimetype.startsWith('image/')) {
+        fileType = 'image';
+        category = 'images';
+      } else if (attachment.mimetype.startsWith('video/')) {
+        fileType = 'video';
+        category = 'videos';
+      } else if (attachment.mimetype.startsWith('audio/')) {
+        fileType = 'voice';
+        category = 'voices';
+      }
+
+      let finalUrl = '';
+      let publicId = null;
+
+      try {
+        if (isProduction) {
+          // PRODUCTION: Upload to Cloudinary using file path (NOT buffer)
+          const uploadResult = await uploadFileToCloudinary(
+            attachment.path,
+            `${process.env.CLOUDINARY_BASE_FOLDER}/${category}`,
+          );
+          finalUrl = uploadResult.secure_url;
+          publicId = uploadResult.public_id;
+
+          // CLEANUP: Remove local file after successful cloud upload
+          removeLocalFile(attachment.path);
+        } else {
+          // DEVELOPMENT: Use local path for offline access
+          finalUrl = getStaticFilePath(req, category, attachment.filename);
         }
-
-        return uploadFileToCloudinary(
-          attachment.buffer,
-          `${process.env.CLOUDINARY_BASE_FOLDER}/${category}`,
-        );
-      });
-
-      const uploadResults = await Promise.all(uploadPromises);
-
-      for (let i = 0; i < uploadResults.length; i++) {
-        const attachment = req.files.attachments[i];
-
-        let fileType = 'document';
-
-        if (attachment.mimetype.startsWith('image/')) fileType = 'image';
-        else if (attachment.mimetype.startsWith('video/')) fileType = 'video';
-        else if (attachment.mimetype.startsWith('audio/')) fileType = 'voice';
 
         attachments.push({
-          fileType: fileType,
+          fileType,
           fileName: attachment.originalname,
           fileSize: attachment.size,
-          url: uploadResults[i].secure_url,
-          public_id: uploadResults[i].public_id,
-          duration: audioDuration ? parseInt(audioDuration) : 0,
+          url: finalUrl,
+          public_id: publicId,
+          // Store localPath in dev for database reference if needed
+          localPath: isProduction ? null : getLocalFilePath(category, attachment.filename),
+          duration: fileType === 'voice' ? parseInt(audioDuration) || 0 : 0,
         });
-      }
-    } else {
-      for (const attachment of req.files.attachments) {
-        let fileType = 'document';
-        let category = 'documents';
-
-        if (attachment.mimetype.startsWith('image/')) {
-          fileType = 'image';
-          category = 'images';
-        } else if (attachment.mimetype.startsWith('video/')) {
-          fileType = 'video';
-          category = 'videos';
-        } else if (attachment.mimetype.startsWith('audio/')) {
-          fileType = 'voice';
-          category = 'voices';
-        }
-
-        const fileUrl = getStaticFilePath(req, category, attachment.filename);
-        const localPath = getLocalFilePath(category, attachment.filename); // ✅ Determine file type
-
-        const attachmentData = {
-          fileType: fileType,
-          fileName: attachment.originalname,
-          fileSize: attachment.size,
-          url: fileUrl,
-          localPath,
-        };
-
-        // ✅ Get duration for voice messages
-        if (fileType === 'voice') {
-          attachmentData.duration = audioDuration ? parseInt(audioDuration) : 0;
-        }
-
-        attachments.push(attachmentData);
+      } catch (error) {
+        // SAFETY: Cleanup all files if any single upload fails to prevent junk on disk
+        removeUnusedMulterFilesOnError(req);
+        throw new ApiError(
+          StatusCodes.INTERNAL_SERVER_ERROR,
+          'File processing failed: ' + error.message,
+        );
       }
     }
   }

@@ -1,11 +1,8 @@
 import multer from 'multer';
 import { uploadLocalFiles } from '../helper.js';
+import path from 'path';
 
 const HOME_UPLOAD_DIRECTORY = 'public';
-
-const devMode = process.env.NODE_ENV;
-const messagingStorage = multer.memoryStorage();
-
 /**
  *
  * @param {string} uploadDirectory
@@ -27,25 +24,21 @@ const developmentStorage = multer.diskStorage({
   },
 
   filename: (req, file, callbackFn) => {
-    let fileExtension = '';
-    if (file.originalname.split('.').length > 1) {
-      fileExtension = file.originalname.substring(file.originalname.lastIndexOf('.'));
-    }
+    let fileExtension = path.extname(file.originalname) || '';
 
-    const filenameWithoutExtension = file.originalname
+    const filenameWithoutExtension = path
+      .basename(file.originalname, fileExtension)
       .toLowerCase()
-      .split(' ')
-      .join('-')
-      ?.split('.')[0];
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9.-]/g, '');
 
-    callbackFn(
-      null,
-      filenameWithoutExtension + Date.now() + Math.ceil(Math.random() * 1e5) + fileExtension,
-    );
+    const uniqueName = `${filenameWithoutExtension}-${Date.now()}-${Math.ceil(Math.random() * 1e5)}${fileExtension}`;
+
+    callbackFn(null, uniqueName);
   },
 });
 
 export const upload = multer({
-  storage: devMode === 'development' ? developmentStorage : messagingStorage,
+  storage: developmentStorage,
   limits: { fileSize: 10 * 1024 * 1024 },
 });
