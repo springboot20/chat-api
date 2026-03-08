@@ -31,12 +31,10 @@ const app = express();
 const PORT = process.env.PORT || 4020;
 const httpServer = http.createServer(app);
 
-// ...
-
 // Global rate limiter
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per window
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   store: new RateLimitRedisStore({
@@ -44,51 +42,57 @@ const limiter = rateLimit({
   }),
 });
 
-// Apply limiter to all API routes
 app.use('/api/', limiter);
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Get CORS origin from environment or use a fallback
-const corsOrigin = process.env.CORS_ORIGIN || 'https://codesuite-chatting-application.vercel.app';
-console.log('CORS Origin:', corsOrigin);
+// ─── CORS ─────────────────────────────────────────────────────────────────────
 
-// Configure CORS middleware first before any routes
-app.use(
-  cors({
-    origin: corsOrigin,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-access-token'],
-    credentials: true,
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
-  }),
-);
+const allowedOrigins = [
+  'http://localhost:3000',
+  // 'http://localhost:5173',
+  // 'https://codesuite-chatting-application.vercel.app',
+  ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []),
+];
 
-// Handle preflight OPTIONS requests
-app.options(
-  '*',
-  cors({
-    origin: corsOrigin,
-    optionsSuccessStatus: 204,
-  }),
-);
+console.log('Allowed CORS origins:', allowedOrigins);
 
-// Setup Socket.io with proper CORS
+/**
+ * @type {cors.CorsOptions}
+ */
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (Postman, mobile apps, curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS blocked: ${origin}`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-access-token'],
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// ─── Socket.io ────────────────────────────────────────────────────────────────
+
 const io = new Server(httpServer, {
   pingTimeout: 60000,
-  cors: {
-    origin: corsOrigin,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    credentials: true,
-  },
+  cors: corsOptions,
+  // cors: {
+  //   origin: allowedOrigins,
+  //   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  //   credentials: true,
+  // },
 });
 
-// Initialize socket
 initializeSocket(io);
-
 app.set('io', io);
+
+// ─── Directory setup ──────────────────────────────────────────────────────────
 
 const publicDir = path.join(__dirname, 'public');
 const uploadsDir = path.join(__dirname, 'public', 'uploads');
@@ -103,35 +107,38 @@ const imagesDir = path.join(uploadsDir, 'images');
   }
 });
 
-// Setup middleware
+// ─── Middleware ───────────────────────────────────────────────────────────────
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Configure session
 app.use(
   session({
     store: new RedisStore({ client: redisClient, prefix: 'session:' }),
     secret: process.env.SESSION_SECRET || 'fallback-secret-key',
     resave: false,
     saveUninitialized: false,
-    saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === 'production', // true on Render (HTTPS)
+      secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24, // 1 day
+      maxAge: 1000 * 60 * 60 * 24,
     },
   }),
 );
+
 app.use(passport.initialize());
 app.use(passport.session());
 
-// API Routes
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
 app.use('/api/v1/chat-app/auth/users', authRouter);
 app.use('/api/v1/chat-app/chats', chatRouter);
 app.use('/api/v1/chat-app/messages', messageRouter);
 app.use('/api/v1/chat-app/statuses', statusRouter);
 app.use('/api/v1/chat-app/contacts', contactRouter);
+
+// ─── Database ─────────────────────────────────────────────────────────────────
 
 mongoose.connection.on('connected', () => {
   console.log('Mongodb connected ....');
@@ -139,8 +146,6 @@ mongoose.connection.on('connected', () => {
 
 mongoose.connection.once('open', () => {
   console.log('✅ Database connected');
-
-  // Start cron jobs
   setupStatusCleanupJob();
 });
 
@@ -150,6 +155,17 @@ process.on('SIGINT', () => {
     process.exit(0);
   });
 });
+
+dataBaseConnection()
+  .then((conn) => {
+    console.log(`MongoDB connected successfully: ${conn.connection.host}`);
+  })
+  .catch((error) => {
+    console.log(error);
+    process.exit(1);
+  });
+
+// ─── Server ───────────────────────────────────────────────────────────────────
 
 httpServer.listen(PORT, () => {
   console.log(`🚀🚀 Server running on http://localhost:${PORT} ✨✨`);
@@ -162,17 +178,6 @@ httpServer.on('error', (error) => {
   console.log(`Server Error : ${error}`);
 });
 
-/**
- * DATABASE CONNECTION
- */
-dataBaseConnection()
-  .then((conn) => {
-    console.log(`MongoDB connected successfully: ${conn.connection.host}`);
-  })
-  .catch((error) => {
-    console.log(error);
-    process.exit(1);
-  });
+// ─── Error handling ───────────────────────────────────────────────────────────
 
-// Error handling
 app.use(errorHandler);

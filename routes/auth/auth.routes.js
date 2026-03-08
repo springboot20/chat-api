@@ -2,7 +2,6 @@ import { Router } from 'express';
 import * as controllers from '../../controllers/index.js';
 import { verifyJWT } from '../../middlewares/auth.middleware.js';
 import {
-  userRegisterValidation,
   userLoginValidation,
   userChangeCurrentPasswordValidation,
   userForgotPasswordValidation,
@@ -16,14 +15,7 @@ export const router = Router();
  * UNPROTECTED ROUTES
  */
 
-router
-  .route('/register')
-  .post(
-    userRegisterValidation(),
-    validate,
-    upload.single('avatar'),
-    controllers.authController.registerUser,
-  );
+router.route('/register').post(upload.single('avatar'), controllers.authController.registerUser);
 
 router.route('/login').post(userLoginValidation(), validate, controllers.authController.loginUser);
 
