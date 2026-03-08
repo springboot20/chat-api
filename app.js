@@ -40,19 +40,17 @@ const limiter = rateLimit({
   store: new RateLimitRedisStore({
     sendCommand: (...args) => redisClient.sendCommand(args),
   }),
+  handler: (req, res, next, options) => {
+    // This ensures headers are sent even if the middleware order is tricky
+    res.status(options.statusCode).send(options.message);
+  },
 });
-
-app.use('/api/', limiter);
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-
 const allowedOrigins = [
-  'http://localhost:3000',
-  // 'http://localhost:5173',
-  // 'https://codesuite-chatting-application.vercel.app',
   ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []),
 ];
 
@@ -76,6 +74,8 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
+app.use('/api/', limiter);
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 
