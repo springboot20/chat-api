@@ -5,10 +5,10 @@ import { ApiResponse } from '../../utils/ApiResponse.js';
 import { ContactModel, userModel } from '../../models/index.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { UserRoles } from '../../constants/constants.js';
-import { generateTokens, getLocalFilePath, getStaticFilePath } from '../../helper.js';
+import { generateTokens, getLocalFilePath, getStaticFilePath, removeUnusedMulterFilesOnError } from '../../helper.js';
 import { validateToken } from '../../utils/jwt.js';
 import mongoose from 'mongoose';
-import { uploadFileToCloudinary } from '../../configs/cloudinary.config.js';
+import { deleteFileFromCloudinary, deleteFileFromCloudinary, uploadFileToCloudinary } from '../../configs/cloudinary.config.js';
 
 const mode = process.env.NODE_ENV;
 
@@ -18,23 +18,38 @@ const registerUser = asyncHandler(async (req, res) => {
   let avatarImage = undefined;
 
   if (req.file) {
-    if (mode === 'production') {
-      const cloudinaryResponse = await uploadFileToCloudinary(
-        req.file.buffer,
-        `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
-      );
-      avatarImage = {
-        url: cloudinaryResponse?.secure_url,
-        public_id: cloudinaryResponse?.public_id,
-      };
-    } else {
-      const avatarLocalPath = getLocalFilePath('images', req.file.filename);
-      const avatarStaticPath = getStaticFilePath(req, 'images', req.file.filename);
+    const isProduction = mode === 'production';
+
+    let finalUrl = '';
+    let publicId = null;
+
+    try {
+      if (isProduction) {
+        const cloudinaryResponse = await uploadFileToCloudinary(
+          req.file.buffer,
+          `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
+        );
+
+        finalUrl = cloudinaryResponse.secure_url;
+        publicId = cloudinaryResponse.public_id;
+
+        removeLocalFile(req.file.path);
+      } else {
+        finalUrl = getStaticFilePath(req, 'images', req.file.filename);
+      }
 
       avatarImage = {
-        url: avatarStaticPath,
-        localPath: avatarLocalPath,
+        url: finalUrl,
+        localPath: isProduction ? null : getLocalFilePath('images', req.file.filename),
+        public_id: publicId ? publicId : undefined,
       };
+    } catch (error) {
+      // SAFETY: Cleanup all files if any single upload fails to prevent junk on disk
+      removeUnusedMulterFilesOnError(req);
+      throw new ApiError(
+        StatusCodes.INTERNAL_SERVER_ERROR,
+        'File processing failed: ' + error.message,
+      );
     }
   }
 
@@ -232,23 +247,50 @@ const uploadAvatar = asyncHandler(async (req, res) => {
   // Check if file exists (using path/filename depending on your Multer setup)
   if (!req.file) throw new ApiError(StatusCodes.BAD_REQUEST, 'No file uploaded');
 
-  let avatarImage;
 
-  if (mode === 'production') {
-    // Ensure multer is using MemoryStorage for .buffer to work
-    const cloudinaryResponse = await uploadFileToCloudinary(
-      req.file.buffer,
-      `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
-    );
-    avatarImage = {
-      url: cloudinaryResponse?.secure_url,
-      public_id: cloudinaryResponse?.public_id,
-    };
-  } else {
-    avatarImage = {
-      url: getStaticFilePath(req, 'images', req.file.filename),
-      localPath: getLocalFilePath('images', req.file.filename),
-    };
+  const user_id = req?.user?._id
+
+  const user = await userModel.findById(user_id);
+
+  let avatarImage = undefined;
+
+  if (req.file) {
+    const isProduction = mode === 'production';
+
+    let finalUrl = '';
+    let publicId = null;
+
+    try {
+      if (isProduction) {
+
+        await deleteFileFromCloudinary(user?.avatar?.public_id);  
+
+        const cloudinaryResponse = await uploadFileToCloudinary(
+          req.file.buffer,
+          `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
+        );
+
+        finalUrl = cloudinaryResponse.secure_url;
+        publicId = cloudinaryResponse.public_id;
+
+        removeLocalFile(req.file.path);
+      } else {
+        finalUrl = getStaticFilePath(req, 'images', req.file.filename);
+      }
+
+      avatarImage = {
+        url: finalUrl,
+        localPath: isProduction ? null : getLocalFilePath('images', req.file.filename),
+        public_id: publicId ? publicId : null,
+      };
+    } catch (error) {
+      // SAFETY: Cleanup all files if any single upload fails to prevent junk on disk
+      removeUnusedMulterFilesOnError(req);
+      throw new ApiError(
+        StatusCodes.INTERNAL_SERVER_ERROR,
+        'File processing failed: ' + error.message,
+      );
+    }
   }
 
   const updatedUser = await userModel
