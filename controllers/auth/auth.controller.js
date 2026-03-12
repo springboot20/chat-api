@@ -5,10 +5,18 @@ import { ApiResponse } from '../../utils/ApiResponse.js';
 import { ContactModel, userModel } from '../../models/index.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { UserRoles } from '../../constants/constants.js';
-import { generateTokens, getLocalFilePath, getStaticFilePath, removeUnusedMulterFilesOnError } from '../../helper.js';
+import {
+  generateTokens,
+  getLocalFilePath,
+  getStaticFilePath,
+  removeUnusedMulterFilesOnError,
+} from '../../helper.js';
 import { validateToken } from '../../utils/jwt.js';
 import mongoose from 'mongoose';
-import { deleteFileFromCloudinary, deleteFileFromCloudinary, uploadFileToCloudinary } from '../../configs/cloudinary.config.js';
+import {
+  deleteFileFromCloudinary,
+  uploadFileToCloudinary,
+} from '../../configs/cloudinary.config.js';
 
 const mode = process.env.NODE_ENV;
 
@@ -247,8 +255,7 @@ const uploadAvatar = asyncHandler(async (req, res) => {
   // Check if file exists (using path/filename depending on your Multer setup)
   if (!req.file) throw new ApiError(StatusCodes.BAD_REQUEST, 'No file uploaded');
 
-
-  const user_id = req?.user?._id
+  const user_id = req?.user?._id;
 
   const user = await userModel.findById(user_id);
 
@@ -262,8 +269,7 @@ const uploadAvatar = asyncHandler(async (req, res) => {
 
     try {
       if (isProduction) {
-
-        await deleteFileFromCloudinary(user?.avatar?.public_id);  
+        await deleteFileFromCloudinary(user?.avatar?.public_id);
 
         const cloudinaryResponse = await uploadFileToCloudinary(
           req.file.buffer,
