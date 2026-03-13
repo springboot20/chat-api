@@ -9,6 +9,7 @@ import {
   generateTokens,
   getLocalFilePath,
   getStaticFilePath,
+  removeLocalFile,
   removeUnusedMulterFilesOnError,
 } from '../../helper.js';
 import { validateToken } from '../../utils/jwt.js';
