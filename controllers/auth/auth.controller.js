@@ -269,7 +269,9 @@ const uploadAvatar = asyncHandler(async (req, res) => {
 
     try {
       if (isProduction) {
-        await deleteFileFromCloudinary(user?.avatar?.public_id);
+        if (user?.avatar?.public_id) {
+          await deleteFileFromCloudinary(user?.avatar?.public_id);
+        }
 
         const cloudinaryResponse = await uploadFileToCloudinary(
           req.file.buffer,
