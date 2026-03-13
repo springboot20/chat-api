@@ -5,7 +5,6 @@ import { chatModel, ContactModel, messageModel, userModel } from '../../models/i
 import { removeLocalFile } from '../../helper.js';
 import mongoose from 'mongoose';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { mountNewChatEvent } from '../../socketIo/socket.js';
 import { SocketEventEnum } from '../../constants/constants.js';
 import { getOrSetCache, invalidateCache } from '../../utils/cache.js';
 
