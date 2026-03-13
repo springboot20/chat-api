@@ -13,20 +13,22 @@ v2.config({
 
 /**
  *
- * @param {Buffer} buffer
+ * @param {string} filepath
  * @param {string} folder
  */
-const uploadFileToCloudinary = async (buffer, folder) => {
+const uploadFileToCloudinary = async (filePath, folder) => {
   return new Promise((resolve, reject) => {
-    v2.uploader
-      .upload_stream({ resource_type: 'auto', folder }, (error, result) => {
-        if (error) {
-          reject(new ApiError(StatusCodes.BAD_REQUEST, error.message));
-        } else {
-          resolve(result);
-        }
-      })
-      .end(buffer);
+    v2.uploader.upload(
+      filePath, // ✅ Cloudinary's upload() accepts a file path directly
+      {
+        resource_type: 'auto',
+        folder,
+      },
+      (error, result) => {
+        if (error) reject(new ApiError(StatusCodes.BAD_REQUEST, error.message));
+        else resolve(result);
+      },
+    );
   });
 };
 

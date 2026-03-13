@@ -34,7 +34,7 @@ const registerUser = asyncHandler(async (req, res) => {
     try {
       if (isProduction) {
         const cloudinaryResponse = await uploadFileToCloudinary(
-          req.file.buffer,
+          req.file.path,
           `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
         );
 
@@ -275,7 +275,7 @@ const uploadAvatar = asyncHandler(async (req, res) => {
         }
 
         const cloudinaryResponse = await uploadFileToCloudinary(
-          req.file.buffer,
+          req.file.path,
           `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
         );
 
