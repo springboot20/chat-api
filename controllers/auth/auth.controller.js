@@ -253,6 +253,7 @@ const resetPassword = asyncHandler(async (req, res) => {
 
 const uploadAvatar = asyncHandler(async (req, res) => {
   // Check if file exists (using path/filename depending on your Multer setup)
+  console.log(req.file)
   if (!req.file) throw new ApiError(StatusCodes.BAD_REQUEST, 'No file uploaded');
 
   const user_id = req?.user?._id;
