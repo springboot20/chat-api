@@ -112,9 +112,12 @@ userSchema.methods.generateRefreshToken = function () {
 
 userSchema.methods.generateTemporaryToken = function () {
   const unHashedToken = crypto.randomBytes(20).toString('hex');
-  const hashedToken = crypto.createHash('sha256').update(unHashedToken).digest('hex');
 
-  const tokenExpiry = 5 * 60 * 1000;
+  // Generate salt and hash the token synchronously
+  const salt = bcrypt.genSaltSync(10); // Use synchronous version for hashing
+  const hashedToken = bcrypt.hashSync(unHashedToken, salt);
+
+  const tokenExpiry = Date.now() + 20 * 60 * 1000; // 20 minutes from now
 
   return { unHashedToken, hashedToken, tokenExpiry };
 };

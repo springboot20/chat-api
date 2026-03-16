@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+      <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Your Email</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 40px 20px;
+        background-color: #f4f4f4;
+        font-family: Arial, sans-serif;
+      }
+      .email-wrapper {
+        max-width: 600px;
+        margin: 0 auto;
+        background-color: #ffffff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+      }
+      .email-header {
+        background-color: #2d3748;
+        padding: 30px;
+        color: white;
+        text-align: center;
+      }
+      .email-body {
+        padding: 30px;
+        color: #2d3748;
+      }
+      .email-button {
+        display: inline-block;
+        background-color: #3182ce;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 6px;
+        text-decoration: none;
+        font-weight: bold;
+        margin-top: 24px;
+      }
+      .email-footer {
+        padding: 20px;
+        text-align: center;
+        font-size: 12px;
+        color: #888;
+        background-color: #f9f9f9;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="email-wrapper">
+      <header class="email-header">
+        <h1>{{appName}}</h1>
+      </header>
+      <section class="email-body">
+        <h2>Hello {{name}},</h2>
+        <p>Thanks for signing up. Please confirm your email by clicking the button below:</p>
+        <a href="{{verificationUrl}}" class="email-button">Verify Email</a>
+        <p style="margin-top: 30px">
+          If you didn’t create this account, you can ignore this email.
+        </p>
+      </section>
+      <footer class="email-footer">&copy; 2025 YourApp. All rights reserved.</footer>
+    </div>
+  </body>
+</html>

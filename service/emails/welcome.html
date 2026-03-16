@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Welcome to {{appName}}</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 40px 20px;
+        background-color: #f9fafb;
+        font-family: 'Segoe UI', sans-serif;
+      }
+      .wrapper {
+        max-width: 600px;
+        margin: auto;
+        background-color: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.04);
+        overflow: hidden;
+      }
+      .header {
+        background-color: #0d47a1;
+        color: white;
+        padding: 30px;
+        text-align: center;
+      }
+      .header h1 {
+        margin: 0;
+        font-size: 24px;
+      }
+      .body {
+        padding: 30px;
+        color: #333333;
+        line-height: 1.6;
+      }
+      .body h2 {
+        margin-top: 0;
+      }
+      .btn {
+        display: inline-block;
+        background-color: #0d47a1;
+        color: white;
+        padding: 12px 24px;
+        text-decoration: none;
+        border-radius: 6px;
+        margin-top: 20px;
+        font-weight: bold;
+      }
+      .footer {
+        background-color: #f1f5f9;
+        padding: 20px;
+        text-align: center;
+        font-size: 12px;
+        color: #888888;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <div class="header">
+        <h1>Welcome to {{appName}} 🎉</h1>
+      </div>
+      <div class="body">
+        <h2>Hi {{name}},</h2>
+        <p>We're thrilled to have you on board! 🎊. Your account has been successfully created.</p>
+        <p>
+          Get started by visiting your dashboard or exploring the features we’ve built just for you.
+        </p>
+        <a href="{{dashboardUrl}}" class="btn">Go to Dashboard</a>
+        <p style="margin-top: 30px">
+          If you have any questions, feel free to reply to this email — we're always happy to help!
+        </p>
+        <p>Cheers, <br />The {{appName}} Team</p>
+      </div>
+      <div class="footer">&copy; 2025 {{appName}} Inc. All rights reserved.</div>
+    </div>
+  </body>
+</html>

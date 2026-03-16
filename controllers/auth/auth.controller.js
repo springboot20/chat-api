@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import { StatusCodes } from 'http-status-codes';
 import { ApiError } from '../../utils/ApiError.js';
 import { ApiResponse } from '../../utils/ApiResponse.js';
@@ -18,6 +18,7 @@ import {
   deleteFileFromCloudinary,
   uploadFileToCloudinary,
 } from '../../configs/cloudinary.config.js';
+import { sendMail } from '../../service/email.service.js';
 
 const mode = process.env.NODE_ENV;
 
@@ -86,11 +87,23 @@ const registerUser = asyncHandler(async (req, res) => {
   user.avatar = avatarImage;
 
   await user.save({ validateBeforeSave: false });
+  const name = `${user.firstname} ${user.lastname}`;
 
-  const verificationLink = `${req.protocol}://${req.get('host')}/api/v1/verify-email/${
-    user?._id
-  }/${unHashedToken}`;
-  // await sendMail(user.email, 'Email verification', { verificationUrl: verificationLink, username: user.username }, 'email-verification');
+  const link =
+    process.env.NODE_ENV === 'production' ? process.env.BASE_URL_PROD : process.env.BASE_URL_DEV;
+
+  const verificationUrl = `${link}/auth/verify-email/?userId=${user?._id}&token=${unHashedToken}`;
+
+  await sendMail({
+    to: user.email,
+    subject: 'Email verification',
+    data: {
+      verificationUrl,
+      name,
+      appName: process.env.APP_NAME,
+    },
+    templateName: 'verify-mail',
+  });
 
   const createdUser = await userModel
     .findById(user._id)
@@ -106,6 +119,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
   return new ApiResponse(StatusCodes.OK, 'user successfully created', {
     user: createdUser,
+    url: verificationUrl,
   });
 });
 
@@ -135,25 +149,52 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 const verifyEmail = asyncHandler(async (req, res) => {
-  const { verifyLink: token } = req.params;
+  const { token, userId } = req.query;
 
-  if (!token) throw new ApiError(StatusCodes.BAD_REQUEST, 'Verification token is missing', []);
-  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+  if (!token || !userId) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Verification token or userId is missing', []);
+  }
 
-  const verifiedUser = await userModel.findOne({
-    emailVerificationToken: hashedToken,
-    emailVerificationExpiry: { $gte: Date.now() },
-  });
+  const user = await userModel.findById(userId);
 
-  verifiedUser.emailVerificationToken = undefined;
-  verifiedUser.emailVerificationExpiry = undefined;
+  if (!user) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Token is invalid or expired');
+  }
 
-  verifiedUser.isEmailVerified = true;
+  // ✅ Handle already-verified case gracefully
+  if (user.isEmailVerified) {
+    return res.status(StatusCodes.OK).json(
+      new ApiResponse(StatusCodes.OK, 'Email is already verified', {
+        isEmailVerified: true,
+        status: 'success',
+      }),
+    );
+  }
 
-  await verifiedUser.save({ validateBeforeSaving: false });
+  // ✅ Guard against missing token on the user doc
+  if (!user.emailVerificationToken || !user.emailVerificationExpiry) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Token is invalid or expired');
+  }
 
-  return new ApiResponse(StatusCodes.OK, 'Email verified', {
+  if (user.emailVerificationExpiry < Date.now()) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Verification token has expired');
+  }
+
+  const hashedToken = await bcrypt.compare(token, user.emailVerificationToken);
+
+  if (!hashedToken) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid email verification token provided');
+  }
+
+  user.emailVerificationToken = undefined;
+  user.emailVerificationExpiry = undefined;
+  user.isEmailVerified = true;
+
+  await user.save({ validateBeforeSave: false });
+
+  return new ApiResponse(StatusCodes.OK, 'Email verified successfully', {
     isEmailVerified: true,
+    status: 'success',
   });
 });
 
@@ -175,10 +216,26 @@ const resendEmailVerification = asyncHandler(async (req, res) => {
 
   await user.save({ validateBeforeSave: false });
 
-  const verifyLink = `${req.protocol}://${req.get('host')}/api/v1/verify-email/${unHashedToken}`;
+  const link =
+    process.env.NODE_ENV === 'production' ? process.env.BASE_URL_PROD : process.env.BASE_URL_DEV;
 
-  // await sendMail(user?.email, 'Email verification', { username: user?.username, verificationLink: verifyLink }, 'email-verification');
-  return new ApiResponse(StatusCodes.OK, 'User registration successful', {});
+  const verificationUrl = `${link}/auth/verify-email/?userId=${user?._id}&token=${unHashedToken}`;
+
+  const name = `${user.firstname} ${user.lastname}`;
+
+  await sendMail({
+    to: user.email,
+    subject: 'Email verification',
+    templateName: 'resend-verification',
+    data: {
+      verificationUrl,
+      name,
+      from: process.env.EMAIL,
+      app: process.env.APP_NAME,
+    },
+  });
+
+  return new ApiResponse(StatusCodes.OK, 'User registration successful', { url: verificationUrl });
 });
 
 const logOut = asyncHandler(
@@ -213,42 +270,54 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
   user.forgotPasswordToken = hashedToken;
   user.forgotPasswordExpiry = token;
-
-  const resetLink = `${req.protocol}//:${req.get('host')}/api/v1/reset-password/${unHashedToken}`;
-  // await sendMail(user.email, 'Password reset', { resetLink, username: user.username }, 'reset-password');
-
   await user.save({ validateBeforeSave: false });
-  return new ApiResponse(StatusCodes.OK, 'Password reset link sent to your email');
+
+  const name = `${user.firstname} ${user.lastname}`;
+
+  const link =
+    process.env.NODE_ENV === 'production' ? process.env.BASE_URL_PROD : process.env.BASE_URL_DEV;
+
+  const resetUrl = `${link}/auth/reset-password/${unHashedToken}`;
+
+  await sendMail({
+    to: user.email,
+    subject: 'Password reset',
+    data: {
+      resetUrl,
+      name,
+      appName: process.env.APP_NAME,
+    },
+    templateName: 'forgot-password',
+  });
+
+  return new ApiResponse(StatusCodes.OK, 'Password reset link sent to your email', {
+    success: true,
+    url: resetUrl,
+  });
 });
 
 const resetPassword = asyncHandler(async (req, res) => {
-  const {
-    params: { resetToken: token },
-  } = req;
+  const { token } = req.query;
   const { password } = req.body;
-
-  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
   const user = await userModel.findOne({
     _id: req.user._id,
-    resetToken: hashedToken,
-    resetTokenExpiry: { $gte: Date.now() },
   });
+
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Token is invalid or expired', []);
 
-  const updatedUser = await userModel.findByIdAndUpdate(
-    req.user._id,
-    {
-      $set: {
-        password: password,
-        forgotPasswordToken: undefined,
-        forgotPasswordExpiry: undefined,
-      },
-    },
-    { new: true },
-  );
+  const validToken = await bcrypt.compare(token, user.forgotPasswordToken);
 
-  await updatedUser.save({ validateBeforeSave: false });
+  if (!validToken) {
+    throw new CustomErrors('Invalid reset password token provided', StatusCodes.UNAUTHORIZED);
+  }
+
+  user.forgotPasswordToken = undefined;
+  user.forgotPasswordTokenExpiry = undefined;
+  user.password = password;
+
+  await user.save({ validateBeforeSave: false });
+
   return new ApiResponse(StatusCodes.OK, 'Password reset successfully', {});
 });
 
@@ -437,6 +506,52 @@ const updateAccount = asyncHandler(async (req, res) => {
   return new ApiResponse(StatusCodes.OK, 'Account updated successfully', updatedUser);
 });
 
+const resendEmailVerificationForNewUser = asyncHandler(
+  /**
+   * @param {import("express").Request} req
+   * @param {import("express").Response} res
+   */
+
+  async (req, res) => {
+    const { email } = req.body;
+
+    const user = await userModel.findOne({ email });
+
+    if (!user) {
+      throw new ApiError(StatusCodes.NOT_FOUND, 'user does not exists', []);
+    }
+
+    const { unHashedToken, hashedToken, tokenExpiry } = user.generateTemporaryToken();
+
+    user.emailVerificationToken = hashedToken;
+    user.emailVerificationTokenExpiry = tokenExpiry;
+    user.isEmailVerified = false;
+
+    await user.save({ validateBeforeSave: false });
+
+    const link =
+      process.env.NODE_ENV === 'production' ? process.env.BASE_URL_PROD : process.env.BASE_URL_DEV;
+
+    const verificationUrl = `${link}/auth/verify-email/?userId=${user?._id}&token=${unHashedToken}`;
+
+    const name = `${user.firstname} ${user.lastname}`;
+
+    await sendMail({
+      to: user.email,
+      subject: 'Email verification',
+      templateName: 'resend-verification',
+      data: {
+        verificationUrl,
+        name,
+        from: process.env.EMAIL,
+        app: process.env.APP_NAME,
+      },
+    });
+
+    return new ApiResponse(StatusCodes.OK, 'Email verification resent', { url: verificationUrl });
+  },
+);
+
 export {
   registerUser,
   loginUser,
@@ -451,4 +566,5 @@ export {
   getCurrentUser,
   resendEmailVerification,
   getUsers,
+  resendEmailVerificationForNewUser,
 };

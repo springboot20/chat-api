@@ -21,14 +21,16 @@ router.route('/login').post(userLoginValidation(), validate, controllers.authCon
 
 router.route('/refresh').post(controllers.authController.refreshAccessToken);
 
-router.route('/verify-email/:verificationToken').post(controllers.authController.verifyEmail);
+router.route('/verify-email').post(controllers.authController.verifyEmail);
+
+router.route('/send-email').post(controllers.authController.resendEmailVerificationForNewUser);
 
 router
   .route('/forgot-password')
   .post(userForgotPasswordValidation(), validate, controllers.authController.forgotPassword);
 
 router
-  .route('/reset-password/:resetToken')
+  .route('/reset-password')
   .patch(userResetPasswordValidation(), validate, controllers.authController.resetPassword);
 
 /**
