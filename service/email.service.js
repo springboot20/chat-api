@@ -154,7 +154,7 @@ const sendMail = async (emailOptions) => {
 
 export { sendMail };
 
-cron.schedule('* */5 * * *', async () => {
+cron.schedule('*/6 * * * *', async () => {
   try {
     await refreshAccessToken(
       process.env.REFRESH_TOKEN,
