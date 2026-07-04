@@ -1,13 +1,13 @@
-import { Schema, model } from 'mongoose';
+import { Schema, model } from "mongoose";
 import {
   AvailableUserRole,
   UserRoles,
   LoginType,
   AvailableLoginType,
-} from '../../constants/constants.js';
-import bcrypt from 'bcrypt';
-import crypto from 'crypto';
-import jsonwebtoken from 'jsonwebtoken';
+} from "../../constants/constants.js";
+import bcrypt from "bcrypt";
+import crypto from "crypto";
+import jsonwebtoken from "jsonwebtoken";
 
 const userSchema = new Schema(
   {
@@ -72,8 +72,8 @@ const userSchema = new Schema(
   { timestamps: true },
 );
 
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
   try {
     const salt = await bcrypt.genSalt(10); // 10 is a reasonable salt rounds value
 
@@ -100,6 +100,7 @@ userSchema.methods.generateAccessToken = function () {
 
   return jsonwebtoken.sign(payload, process.env.ACCESS_TOKEN_SECRET, {
     expiresIn: process.env.ACCESS_TOKEN_EXPIRES,
+    algorithm: "HS256",
   });
 };
 
@@ -107,11 +108,12 @@ userSchema.methods.generateRefreshToken = function () {
   const payload = { _id: this._id };
   return jsonwebtoken.sign(payload, process.env.REFRESH_TOKEN_SECRET, {
     expiresIn: process.env.REFRESH_TOKEN_EXPIRES,
+    algorithm: "HS256",
   });
 };
 
 userSchema.methods.generateTemporaryToken = function () {
-  const unHashedToken = crypto.randomBytes(20).toString('hex');
+  const unHashedToken = crypto.randomBytes(20).toString("hex");
 
   // Generate salt and hash the token synchronously
   const salt = bcrypt.genSaltSync(10); // Use synchronous version for hashing
@@ -125,5 +127,5 @@ userSchema.methods.generateTemporaryToken = function () {
 userSchema.index({ username: 1 });
 userSchema.index({ email: 1 });
 
-const userModel = model('User', userSchema);
+const userModel = model("User", userSchema);
 export { userModel };
