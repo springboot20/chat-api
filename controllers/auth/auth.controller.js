@@ -1,24 +1,25 @@
-import bcrypt from 'bcrypt';
-import { StatusCodes } from 'http-status-codes';
-import { ApiError } from '../../utils/ApiError.js';
-import { ApiResponse } from '../../utils/ApiResponse.js';
-import { ContactModel, userModel } from '../../models/index.js';
-import { asyncHandler } from '../../utils/asyncHandler.js';
-import { UserRoles } from '../../constants/constants.js';
+import bcrypt from "bcrypt";
+import { StatusCodes } from "http-status-codes";
+import { ApiError } from "../../utils/ApiError.js";
+import { ApiResponse } from "../../utils/ApiResponse.js";
+import { ContactModel, userModel } from "../../models/index.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+import { UserRoles } from "../../constants/constants.js";
 import {
   generateTokens,
   getLocalFilePath,
   getStaticFilePath,
   removeLocalFile,
   removeUnusedMulterFilesOnError,
-} from '../../helper.js';
-import { validateToken } from '../../utils/jwt.js';
-import mongoose from 'mongoose';
+} from "../../helper.js";
+import { validateToken } from "../../utils/jwt.js";
+import mongoose from "mongoose";
 import {
   deleteFileFromCloudinary,
   uploadFileToCloudinary,
-} from '../../configs/cloudinary.config.js';
-import { sendMail } from '../../service/email.service.js';
+} from "../../configs/cloudinary.config.js";
+import { sendMail } from "../../service/email.service.js";
+import path from "path";
 
 const mode = process.env.NODE_ENV;
 
@@ -28,16 +29,18 @@ const registerUser = asyncHandler(async (req, res) => {
   let avatarImage = undefined;
 
   if (req.file) {
-    const isProduction = mode === 'production';
+    const isProduction = mode === "production";
 
-    let finalUrl = '';
+    let finalUrl = "";
     let publicId = null;
+
+    const uploadedSubFolder = path.basename(req.file.destination);
 
     try {
       if (isProduction) {
         const cloudinaryResponse = await uploadFileToCloudinary(
           req.file.path,
-          `${process.env.CLOUDINARY_BASE_FOLDER}/images`,
+          `${process.env.CLOUDINARY_BASE_FOLDER}/${uploadedSubFolder}`,
         );
 
         finalUrl = cloudinaryResponse.secure_url;
@@ -45,12 +48,14 @@ const registerUser = asyncHandler(async (req, res) => {
 
         removeLocalFile(req.file.path);
       } else {
-        finalUrl = getStaticFilePath(req, 'images', req.file.filename);
+        finalUrl = getStaticFilePath(req, uploadedSubFolder, req.file.filename);
       }
 
       avatarImage = {
         url: finalUrl,
-        localPath: isProduction ? null : getLocalFilePath('images', req.file.filename),
+        localPath: isProduction
+          ? null
+          : getLocalFilePath(uploadedSubFolder, req.file.filename),
         public_id: publicId ? publicId : undefined,
       };
     } catch (error) {
@@ -58,7 +63,7 @@ const registerUser = asyncHandler(async (req, res) => {
       removeUnusedMulterFilesOnError(req);
       throw new ApiError(
         StatusCodes.INTERNAL_SERVER_ERROR,
-        'File processing failed: ' + error.message,
+        "File processing failed: " + error.message,
       );
     }
   }
@@ -68,7 +73,11 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   if (existingUser) {
-    throw new ApiError(StatusCodes.CONFLICT, 'user with username or email already exists', []);
+    throw new ApiError(
+      StatusCodes.CONFLICT,
+      "user with username or email already exists",
+      [],
+    );
   }
 
   const user = await userModel.create({
@@ -79,7 +88,8 @@ const registerUser = asyncHandler(async (req, res) => {
     isEmailVerified: false,
   });
 
-  const { unHashedToken, hashedToken, tokenExpiry } = user.generateTemporaryToken();
+  const { unHashedToken, hashedToken, tokenExpiry } =
+    user.generateTemporaryToken();
 
   user.emailVerificationToken = hashedToken;
   user.emailVerificationExpiry = tokenExpiry;
@@ -90,34 +100,38 @@ const registerUser = asyncHandler(async (req, res) => {
   const name = `${user.firstname} ${user.lastname}`;
 
   const link =
-    process.env.NODE_ENV === 'production' ? process.env.BASE_URL_PROD : process.env.BASE_URL_DEV;
+    process.env.NODE_ENV === "production"
+      ? process.env.BASE_URL_PROD
+      : process.env.BASE_URL_DEV;
 
   const verificationUrl = `${link}/auth/verify-email/?userId=${user?._id}&token=${unHashedToken}`;
 
   await sendMail({
     to: user.email,
-    subject: 'Email verification',
+    subject: "Email verification",
     data: {
       verificationUrl,
       name,
       appName: process.env.APP_NAME,
     },
-    templateName: 'verify-mail',
+    templateName: "verify-mail",
   });
 
   const createdUser = await userModel
     .findById(user._id)
-    .select('-password -refreshToken -emailVerificationToken -emailVerificationExpiry');
+    .select(
+      "-password -refreshToken -emailVerificationToken -emailVerificationExpiry",
+    );
 
   if (!createdUser) {
     throw new ApiError(
       StatusCodes.INTERNAL_SERVER_ERROR,
-      'Something went wrong while creating the user',
+      "Something went wrong while creating the user",
       [],
     );
   }
 
-  return new ApiResponse(StatusCodes.OK, 'user successfully created', {
+  return new ApiResponse(StatusCodes.OK, "user successfully created", {
     user: createdUser,
     url: verificationUrl,
   });
@@ -135,15 +149,18 @@ const loginUser = asyncHandler(async (req, res) => {
     );
 
   if (!email && !password)
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'please provide an email and a password');
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "please provide an email and a password",
+    );
 
   if (!(await user.isPasswordCorrect(password))) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'invalid password entered');
+    throw new ApiError(StatusCodes.UNAUTHORIZED, "invalid password entered");
   }
 
   const { accessToken, refreshToken } = await generateTokens(user._id);
 
-  return new ApiResponse(StatusCodes.OK, 'user logged in successfully', {
+  return new ApiResponse(StatusCodes.OK, "user logged in successfully", {
     tokens: { accessToken, refreshToken },
   });
 });
@@ -152,38 +169,48 @@ const verifyEmail = asyncHandler(async (req, res) => {
   const { token, userId } = req.query;
 
   if (!token || !userId) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Verification token or userId is missing', []);
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "Verification token or userId is missing",
+      [],
+    );
   }
 
   const user = await userModel.findById(userId);
 
   if (!user) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Token is invalid or expired');
+    throw new ApiError(StatusCodes.UNAUTHORIZED, "Token is invalid or expired");
   }
 
   // ✅ Handle already-verified case gracefully
   if (user.isEmailVerified) {
     return res.status(StatusCodes.OK).json(
-      new ApiResponse(StatusCodes.OK, 'Email is already verified', {
+      new ApiResponse(StatusCodes.OK, "Email is already verified", {
         isEmailVerified: true,
-        status: 'success',
+        status: "success",
       }),
     );
   }
 
   // ✅ Guard against missing token on the user doc
   if (!user.emailVerificationToken || !user.emailVerificationExpiry) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Token is invalid or expired');
+    throw new ApiError(StatusCodes.UNAUTHORIZED, "Token is invalid or expired");
   }
 
   if (user.emailVerificationExpiry < Date.now()) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Verification token has expired');
+    throw new ApiError(
+      StatusCodes.UNAUTHORIZED,
+      "Verification token has expired",
+    );
   }
 
   const hashedToken = await bcrypt.compare(token, user.emailVerificationToken);
 
   if (!hashedToken) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid email verification token provided');
+    throw new ApiError(
+      StatusCodes.UNAUTHORIZED,
+      "Invalid email verification token provided",
+    );
   }
 
   user.emailVerificationToken = undefined;
@@ -192,9 +219,9 @@ const verifyEmail = asyncHandler(async (req, res) => {
 
   await user.save({ validateBeforeSave: false });
 
-  return new ApiResponse(StatusCodes.OK, 'Email verified successfully', {
+  return new ApiResponse(StatusCodes.OK, "Email verified successfully", {
     isEmailVerified: true,
-    status: 'success',
+    status: "success",
   });
 });
 
@@ -202,14 +229,19 @@ const resendEmailVerification = asyncHandler(async (req, res) => {
   const user = await userModel.findById(req.user._id);
 
   if (!user) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'User does not exists', []);
+    throw new ApiError(StatusCodes.NOT_FOUND, "User does not exists", []);
   }
 
   if (user.isEmailVerified) {
-    throw new ApiError(StatusCodes.CONFLICT, 'User email has already been verified', []);
+    throw new ApiError(
+      StatusCodes.CONFLICT,
+      "User email has already been verified",
+      [],
+    );
   }
 
-  const { unHashedToken, hashedToken, tokenExpiry } = user.generateTemporaryToken();
+  const { unHashedToken, hashedToken, tokenExpiry } =
+    user.generateTemporaryToken();
 
   user.emailVerificationExpiry = new Date(tokenExpiry);
   user.emailVerificationToken = hashedToken;
@@ -217,7 +249,9 @@ const resendEmailVerification = asyncHandler(async (req, res) => {
   await user.save({ validateBeforeSave: false });
 
   const link =
-    process.env.NODE_ENV === 'production' ? process.env.BASE_URL_PROD : process.env.BASE_URL_DEV;
+    process.env.NODE_ENV === "production"
+      ? process.env.BASE_URL_PROD
+      : process.env.BASE_URL_DEV;
 
   const verificationUrl = `${link}/auth/verify-email/?userId=${user?._id}&token=${unHashedToken}`;
 
@@ -225,8 +259,8 @@ const resendEmailVerification = asyncHandler(async (req, res) => {
 
   await sendMail({
     to: user.email,
-    subject: 'Email verification',
-    templateName: 'resend-verification',
+    subject: "Email verification",
+    templateName: "resend-verification",
     data: {
       verificationUrl,
       name,
@@ -235,7 +269,9 @@ const resendEmailVerification = asyncHandler(async (req, res) => {
     },
   });
 
-  return new ApiResponse(StatusCodes.OK, 'User registration successful', { url: verificationUrl });
+  return new ApiResponse(StatusCodes.OK, "User registration successful", {
+    url: verificationUrl,
+  });
 });
 
 const logOut = asyncHandler(
@@ -256,7 +292,7 @@ const logOut = asyncHandler(
       { new: true },
     );
 
-    return new ApiResponse(StatusCodes.OK, 'you have successfully logged out');
+    return new ApiResponse(StatusCodes.OK, "you have successfully logged out");
   },
 );
 
@@ -264,7 +300,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
 
   const user = await userModel.findOne({ email });
-  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, "User not found");
 
   const { unHashedToken, hashedToken, token } = user.generateTemporaryToken();
 
@@ -275,25 +311,31 @@ const forgotPassword = asyncHandler(async (req, res) => {
   const name = `${user.firstname} ${user.lastname}`;
 
   const link =
-    process.env.NODE_ENV === 'production' ? process.env.BASE_URL_PROD : process.env.BASE_URL_DEV;
+    process.env.NODE_ENV === "production"
+      ? process.env.BASE_URL_PROD
+      : process.env.BASE_URL_DEV;
 
   const resetUrl = `${link}/auth/reset-password/${unHashedToken}`;
 
   await sendMail({
     to: user.email,
-    subject: 'Password reset',
+    subject: "Password reset",
     data: {
       resetUrl,
       name,
       appName: process.env.APP_NAME,
     },
-    templateName: 'forgot-password',
+    templateName: "forgot-password",
   });
 
-  return new ApiResponse(StatusCodes.OK, 'Password reset link sent to your email', {
-    success: true,
-    url: resetUrl,
-  });
+  return new ApiResponse(
+    StatusCodes.OK,
+    "Password reset link sent to your email",
+    {
+      success: true,
+      url: resetUrl,
+    },
+  );
 });
 
 const resetPassword = asyncHandler(async (req, res) => {
@@ -304,12 +346,20 @@ const resetPassword = asyncHandler(async (req, res) => {
     _id: req.user._id,
   });
 
-  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Token is invalid or expired', []);
+  if (!user)
+    throw new ApiError(
+      StatusCodes.NOT_FOUND,
+      "Token is invalid or expired",
+      [],
+    );
 
   const validToken = await bcrypt.compare(token, user.forgotPasswordToken);
 
   if (!validToken) {
-    throw new CustomErrors('Invalid reset password token provided', StatusCodes.UNAUTHORIZED);
+    throw new CustomErrors(
+      "Invalid reset password token provided",
+      StatusCodes.UNAUTHORIZED,
+    );
   }
 
   user.forgotPasswordToken = undefined;
@@ -318,13 +368,21 @@ const resetPassword = asyncHandler(async (req, res) => {
 
   await user.save({ validateBeforeSave: false });
 
-  return new ApiResponse(StatusCodes.OK, 'Password reset successfully', {});
+  return new ApiResponse(StatusCodes.OK, "Password reset successfully", {});
 });
 
 const uploadAvatar = asyncHandler(async (req, res) => {
-  // Check if file exists (using path/filename depending on your Multer setup)
-  console.log(req.file);
-  if (!req.file) throw new ApiError(StatusCodes.BAD_REQUEST, 'No file uploaded');
+  if (!req.file)
+    throw new ApiError(StatusCodes.BAD_REQUEST, "No file uploaded");
+
+  // Reject non-image uploads early instead of silently misrouting them
+  if (!req.file.mimetype.startsWith("image/")) {
+    removeUnusedMulterFilesOnError(req);
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "Only image files are allowed for avatar",
+    );
+  }
 
   const user_id = req?.user?._id;
 
@@ -333,10 +391,12 @@ const uploadAvatar = asyncHandler(async (req, res) => {
   let avatarImage = undefined;
 
   if (req.file) {
-    const isProduction = mode === 'production';
+    const isProduction = mode === "production";
 
-    let finalUrl = '';
+    let finalUrl = "";
     let publicId = null;
+
+    const uploadedSubFolder = path.basename(req.file.destination);
 
     try {
       if (isProduction) {
@@ -354,12 +414,14 @@ const uploadAvatar = asyncHandler(async (req, res) => {
 
         removeLocalFile(req.file.path);
       } else {
-        finalUrl = getStaticFilePath(req, 'images', req.file.filename);
+        finalUrl = getStaticFilePath(req, uploadedSubFolder, req.file.filename);
       }
 
       avatarImage = {
         url: finalUrl,
-        localPath: isProduction ? null : getLocalFilePath('images', req.file.filename),
+        localPath: isProduction
+          ? null
+          : getLocalFilePath(uploadedSubFolder, req.file.filename),
         public_id: publicId ? publicId : null,
       };
     } catch (error) {
@@ -367,16 +429,26 @@ const uploadAvatar = asyncHandler(async (req, res) => {
       removeUnusedMulterFilesOnError(req);
       throw new ApiError(
         StatusCodes.INTERNAL_SERVER_ERROR,
-        'File processing failed: ' + error.message,
+        "File processing failed: " + error.message,
       );
     }
   }
 
   const updatedUser = await userModel
-    .findOneAndUpdate({ _id: req.user._id }, { $set: { avatar: avatarImage } }, { new: true })
-    .select('-password -refreshToken -emailVerificationToken -emailVerificationExpiry');
+    .findOneAndUpdate(
+      { _id: req.user._id },
+      { $set: { avatar: avatarImage } },
+      { new: true },
+    )
+    .select(
+      "-password -refreshToken -emailVerificationToken -emailVerificationExpiry",
+    );
 
-  return new ApiResponse(StatusCodes.OK, 'Avatar updated successfully', updatedUser);
+  return new ApiResponse(
+    StatusCodes.OK,
+    "Avatar updated successfully",
+    updatedUser,
+  );
 });
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
@@ -386,25 +458,34 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 
   console.log(inComingRefreshToken);
 
-  const decodedRefreshToken = validateToken(inComingRefreshToken, process.env.JWT_REFRESH_SECRET);
+  const decodedRefreshToken = validateToken(
+    inComingRefreshToken,
+    process.env.JWT_REFRESH_SECRET,
+  );
   let user = await userModel.findByIdAndUpdate(decodedRefreshToken?._id);
 
   if (!user) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid Token');
+    throw new ApiError(StatusCodes.UNAUTHORIZED, "Invalid Token");
   }
 
   if (inComingRefreshToken !== user?.refreshToken) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Token has expired or has already been used');
+    throw new ApiError(
+      StatusCodes.UNAUTHORIZED,
+      "Token has expired or has already been used",
+    );
   }
 
-  const { accessToken, refreshToken } = await generateTokens(res, user?._id.toString());
+  const { accessToken, refreshToken } = await generateTokens(
+    res,
+    user?._id.toString(),
+  );
   user.refreshToken = refreshToken;
   await user.save({});
 
   return new ApiResponse(
     StatusCodes.OK,
     { tokens: { accessToken, refreshToken } },
-    'AccessToken refreshed successfully',
+    "AccessToken refreshed successfully",
   );
 });
 
@@ -413,9 +494,11 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 
   const user = await userModel
     .findById(userId)
-    .select('-password -refreshToken -emailVerificationToken -emailVerificationExpiry');
+    .select(
+      "-password -refreshToken -emailVerificationToken -emailVerificationExpiry",
+    );
 
-  return new ApiResponse(StatusCodes.OK, 'user fetched successfully', {
+  return new ApiResponse(StatusCodes.OK, "user fetched successfully", {
     user,
   });
 });
@@ -428,29 +511,34 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
   const user = await userModel.findById(req.user._id);
 
   if (!user) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'User not found', []);
+    throw new ApiError(StatusCodes.NOT_FOUND, "User not found", []);
   }
 
   let isPasswordValid = user.isPasswordCorrect(existingPassword, user.password);
 
   if (!isPasswordValid) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Existing password does not matched');
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "Existing password does not matched",
+    );
   }
 
   user.password = newPassword;
   await user.save({ validateBeforeSave: false });
 
-  return new ApiResponse(StatusCodes.OK, 'Current password changed', {});
+  return new ApiResponse(StatusCodes.OK, "Current password changed", {});
 });
 
 const getUsers = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const search = req.query.search || '';
+  const search = req.query.search || "";
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.max(1, parseInt(req.query.limit) || 10);
   const skip = (page - 1) * limit;
 
-  const myContacts = await ContactModel.find({ owner: userId }).select('contact');
+  const myContacts = await ContactModel.find({ owner: userId }).select(
+    "contact",
+  );
   const contactIds = myContacts.map((c) => c.contact);
 
   // 1. Build the match condition dynamically
@@ -464,8 +552,8 @@ const getUsers = asyncHandler(async (req, res) => {
   // 2. ONLY add search if it exists. If not, it just returns everyone else.
   if (search.trim()) {
     matchCondition.$or = [
-      { username: { $regex: search.trim(), $options: 'i' } },
-      { email: { $regex: search.trim(), $options: 'i' } },
+      { username: { $regex: search.trim(), $options: "i" } },
+      { email: { $regex: search.trim(), $options: "i" } },
     ];
   }
 
@@ -473,7 +561,7 @@ const getUsers = asyncHandler(async (req, res) => {
     { $match: matchCondition }, // Apply the dynamic condition
     {
       $facet: {
-        metadata: [{ $count: 'total' }],
+        metadata: [{ $count: "total" }],
         data: [
           { $skip: skip },
           { $limit: limit },
@@ -490,7 +578,7 @@ const getUsers = asyncHandler(async (req, res) => {
   const totalPages = Math.ceil(totalUsers / limit);
   const hasMore = page < totalPages;
 
-  return new ApiResponse(StatusCodes.OK, 'Available users fetched', {
+  return new ApiResponse(StatusCodes.OK, "Available users fetched", {
     users,
     pagination: { hasMore, limit, page, total: totalUsers, totalPages },
   });
@@ -500,10 +588,20 @@ const updateAccount = asyncHandler(async (req, res) => {
   const { username, about } = req.body;
 
   const updatedUser = await userModel
-    .findByIdAndUpdate(req.user._id, { $set: { username, about } }, { new: true })
-    .select('-password -refreshToken -emailVerificationToken -emailVerificationExpiry');
+    .findByIdAndUpdate(
+      req.user._id,
+      { $set: { username, about } },
+      { new: true },
+    )
+    .select(
+      "-password -refreshToken -emailVerificationToken -emailVerificationExpiry",
+    );
 
-  return new ApiResponse(StatusCodes.OK, 'Account updated successfully', updatedUser);
+  return new ApiResponse(
+    StatusCodes.OK,
+    "Account updated successfully",
+    updatedUser,
+  );
 });
 
 const resendEmailVerificationForNewUser = asyncHandler(
@@ -518,10 +616,11 @@ const resendEmailVerificationForNewUser = asyncHandler(
     const user = await userModel.findOne({ email });
 
     if (!user) {
-      throw new ApiError(StatusCodes.NOT_FOUND, 'user does not exists', []);
+      throw new ApiError(StatusCodes.NOT_FOUND, "user does not exists", []);
     }
 
-    const { unHashedToken, hashedToken, tokenExpiry } = user.generateTemporaryToken();
+    const { unHashedToken, hashedToken, tokenExpiry } =
+      user.generateTemporaryToken();
 
     user.emailVerificationToken = hashedToken;
     user.emailVerificationTokenExpiry = tokenExpiry;
@@ -530,7 +629,9 @@ const resendEmailVerificationForNewUser = asyncHandler(
     await user.save({ validateBeforeSave: false });
 
     const link =
-      process.env.NODE_ENV === 'production' ? process.env.BASE_URL_PROD : process.env.BASE_URL_DEV;
+      process.env.NODE_ENV === "production"
+        ? process.env.BASE_URL_PROD
+        : process.env.BASE_URL_DEV;
 
     const verificationUrl = `${link}/auth/verify-email/?userId=${user?._id}&token=${unHashedToken}`;
 
@@ -538,8 +639,8 @@ const resendEmailVerificationForNewUser = asyncHandler(
 
     await sendMail({
       to: user.email,
-      subject: 'Email verification',
-      templateName: 'resend-verification',
+      subject: "Email verification",
+      templateName: "resend-verification",
       data: {
         verificationUrl,
         name,
@@ -548,7 +649,9 @@ const resendEmailVerificationForNewUser = asyncHandler(
       },
     });
 
-    return new ApiResponse(StatusCodes.OK, 'Email verification resent', { url: verificationUrl });
+    return new ApiResponse(StatusCodes.OK, "Email verification resent", {
+      url: verificationUrl,
+    });
   },
 );
 

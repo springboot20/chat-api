@@ -13,7 +13,7 @@ const userSchema = new Schema(
   {
     username: {
       type: String,
-      index: true,
+      // index: true,
       trim: true,
       required: true,
       lowercase: true,

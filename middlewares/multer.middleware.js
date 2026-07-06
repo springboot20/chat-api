@@ -1,8 +1,8 @@
-import multer from 'multer';
-import { uploadLocalFiles } from '../helper.js';
-import path from 'path';
+import multer from "multer";
+import { uploadLocalFiles } from "../helper.js";
+import path from "path";
 
-const HOME_UPLOAD_DIRECTORY = 'public';
+const HOME_UPLOAD_DIRECTORY = "public";
 /**
  *
  * @param {string} uploadDirectory
@@ -10,27 +10,36 @@ const HOME_UPLOAD_DIRECTORY = 'public';
  */
 const developmentStorage = multer.diskStorage({
   destination: (req, file, callbackFn) => {
+    console.log(
+      "mimetype:",
+      file.mimetype,
+      "| originalname:",
+      file.originalname,
+    );
+
     // 1. Determine subfolder based on the file type
-    let subFolder = 'documents'; // Default
-    if (file.mimetype.startsWith('image/')) subFolder = 'images';
-    else if (file.mimetype.startsWith('audio/')) subFolder = 'voices';
-    else if (file.mimetype.startsWith('video/')) subFolder = 'videos';
+    let subFolder = "documents"; // Default
+    if (file.mimetype.startsWith("image/")) subFolder = "images";
+    else if (file.mimetype.startsWith("audio/")) subFolder = "voices";
+    else if (file.mimetype.startsWith("video/")) subFolder = "videos";
 
     // 2. Build the path: public/uploads/images, etc.
     // uploadLocalFiles helper will mkdirSync(recursive: true) automatically
-    const finalPath = uploadLocalFiles(`${HOME_UPLOAD_DIRECTORY}/uploads/${subFolder}`);
+    const finalPath = uploadLocalFiles(
+      `${HOME_UPLOAD_DIRECTORY}/uploads/${subFolder}`,
+    );
 
     callbackFn(null, finalPath);
   },
 
   filename: (req, file, callbackFn) => {
-    let fileExtension = path.extname(file.originalname) || '';
+    let fileExtension = path.extname(file.originalname) || "";
 
     const filenameWithoutExtension = path
       .basename(file.originalname, fileExtension)
       .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9.-]/g, '');
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9.-]/g, "");
 
     const uniqueName = `${filenameWithoutExtension}-${Date.now()}-${Math.ceil(Math.random() * 1e5)}${fileExtension}`;
 
@@ -41,4 +50,16 @@ const developmentStorage = multer.diskStorage({
 export const upload = multer({
   storage: developmentStorage,
   limits: { fileSize: 50 * 1024 * 1024 },
+});
+
+// Dedicated instance for avatar uploads: smaller size limit + strict image-only filter
+export const uploadAvatarImage = multer({
+  storage: developmentStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only image files are allowed for avatar"), false);
+    }
+    cb(null, true);
+  },
 });

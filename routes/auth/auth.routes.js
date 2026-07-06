@@ -1,51 +1,70 @@
-import { Router } from 'express';
-import * as controllers from '../../controllers/index.js';
-import { verifyJWT } from '../../middlewares/auth.middleware.js';
+import { Router } from "express";
+import * as controllers from "../../controllers/index.js";
+import { verifyJWT } from "../../middlewares/auth.middleware.js";
 import {
   userLoginValidation,
   userChangeCurrentPasswordValidation,
   userForgotPasswordValidation,
   userResetPasswordValidation,
-} from '../../validation/app/user.validators.js';
-import { validate } from '../../validation/validate.middleware.js';
-import { upload } from '../../middlewares/multer.middleware.js';
+} from "../../validation/app/user.validators.js";
+import { validate } from "../../validation/validate.middleware.js";
+import { uploadAvatarImage } from "../../middlewares/multer.middleware.js";
 
 export const router = Router();
 /**
  * UNPROTECTED ROUTES
  */
 
-router.route('/register').post(upload.single('avatar'), controllers.authController.registerUser);
-
-router.route('/login').post(userLoginValidation(), validate, controllers.authController.loginUser);
-
-router.route('/refresh').post(controllers.authController.refreshAccessToken);
-
-router.route('/verify-email').post(controllers.authController.verifyEmail);
-
-router.route('/send-email').post(controllers.authController.resendEmailVerificationForNewUser);
+router
+  .route("/register")
+  .post(
+    uploadAvatarImage.single("avatar"),
+    controllers.authController.registerUser,
+  );
 
 router
-  .route('/forgot-password')
-  .post(userForgotPasswordValidation(), validate, controllers.authController.forgotPassword);
+  .route("/login")
+  .post(userLoginValidation(), validate, controllers.authController.loginUser);
+
+router.route("/refresh").post(controllers.authController.refreshAccessToken);
+
+router.route("/verify-email").post(controllers.authController.verifyEmail);
 
 router
-  .route('/reset-password')
-  .patch(userResetPasswordValidation(), validate, controllers.authController.resetPassword);
+  .route("/send-email")
+  .post(controllers.authController.resendEmailVerificationForNewUser);
+
+router
+  .route("/forgot-password")
+  .post(
+    userForgotPasswordValidation(),
+    validate,
+    controllers.authController.forgotPassword,
+  );
+
+router
+  .route("/reset-password")
+  .patch(
+    userResetPasswordValidation(),
+    validate,
+    controllers.authController.resetPassword,
+  );
 
 /**
  * PROTECTED ROUTES
  */
-router.route('/logout').post(verifyJWT, controllers.authController.logOut);
-
-router.route('/available-users').get(verifyJWT, controllers.authController.getUsers);
+router.route("/logout").post(verifyJWT, controllers.authController.logOut);
 
 router
-  .route('/resend-email-verification')
+  .route("/available-users")
+  .get(verifyJWT, controllers.authController.getUsers);
+
+router
+  .route("/resend-email-verification")
   .post(verifyJWT, controllers.authController.resendEmailVerification);
 
 router
-  .route('/change-current-password')
+  .route("/change-current-password")
   .post(
     verifyJWT,
     userChangeCurrentPasswordValidation(),
@@ -53,10 +72,18 @@ router
     controllers.authController.changeCurrentPassword,
   );
 
-router.route('/current-user').get(verifyJWT, controllers.authController.getCurrentUser);
+router
+  .route("/current-user")
+  .get(verifyJWT, controllers.authController.getCurrentUser);
 
 router
-  .route('/upload-avatar')
-  .post(verifyJWT, upload.single('avatar'), controllers.authController.uploadAvatar);
+  .route("/upload-avatar")
+  .post(
+    verifyJWT,
+    uploadAvatarImage.single("avatar"),
+    controllers.authController.uploadAvatar,
+  );
 
-router.route('/update-account').patch(verifyJWT, controllers.authController.updateAccount);
+router
+  .route("/update-account")
+  .patch(verifyJWT, controllers.authController.updateAccount);
