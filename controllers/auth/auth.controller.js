@@ -456,13 +456,12 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     body: { inComingRefreshToken },
   } = req;
 
-  console.log(inComingRefreshToken);
-
   const decodedRefreshToken = validateToken(
     inComingRefreshToken,
-    process.env.JWT_REFRESH_SECRET,
+    process.env.REFRESH_TOKEN_SECRET,
   );
-  let user = await userModel.findByIdAndUpdate(decodedRefreshToken?._id);
+
+  let user = await userModel.findById(decodedRefreshToken?._id);
 
   if (!user) {
     throw new ApiError(StatusCodes.UNAUTHORIZED, "Invalid Token");
@@ -476,17 +475,15 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 
   const { accessToken, refreshToken } = await generateTokens(
-    res,
     user?._id.toString(),
   );
+
   user.refreshToken = refreshToken;
   await user.save({});
 
-  return new ApiResponse(
-    StatusCodes.OK,
-    { tokens: { accessToken, refreshToken } },
-    "AccessToken refreshed successfully",
-  );
+  return new ApiResponse(StatusCodes.OK, "AccessToken refreshed successfully", {
+    tokens: { accessToken, refreshToken },
+  });
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {

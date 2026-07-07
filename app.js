@@ -32,19 +32,19 @@ const PORT = process.env.PORT || 4020;
 const httpServer = http.createServer(app);
 
 // Global rate limiter
-const limiter = rateLimit({
-  windowMs: 105 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  store: new RateLimitRedisStore({
-    sendCommand: (...args) => redisClient.sendCommand(args),
-  }),
-  handler: (req, res, next, options) => {
-    // This ensures headers are sent even if the middleware order is tricky
-    res.status(options.statusCode).send(options.message);
-  },
-});
+// const limiter = rateLimit({
+//   windowMs: 105 * 60 * 1000,
+//   max: 100,
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   store: new RateLimitRedisStore({
+//     sendCommand: (...args) => redisClient.sendCommand(args),
+//   }),
+//   handler: (req, res, next, options) => {
+//     // This ensures headers are sent even if the middleware order is tricky
+//     res.status(options.statusCode).send(options.message);
+//   },
+// });
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,7 +75,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
-app.use("/api/", limiter);
+// app.use("/api/", limiter);
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 

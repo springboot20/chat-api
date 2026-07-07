@@ -1,9 +1,9 @@
-import fs from 'fs';
-import { userModel } from './models/index.js';
-import { ApiError } from './utils/ApiError.js';
-import { StatusCodes } from 'http-status-codes';
-import path from 'path';
-import url from 'url';
+import fs from "fs";
+import { userModel } from "./models/index.js";
+import { ApiError } from "./utils/ApiError.js";
+import { StatusCodes } from "http-status-codes";
+import path from "path";
+import url from "url";
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 export const generateTokens = async (userId) => {
   try {
     const user = await userModel.findById(userId);
-    if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'user does not exist');
+    if (!user) throw new ApiError(StatusCodes.NOT_FOUND, "user does not exist");
 
     const accessToken = user.generateAccessToken();
     const refreshToken = user.generateRefreshToken();
@@ -42,14 +42,14 @@ export const uploadLocalFiles = (uploadDirectory) => {
  */
 export const getStaticFilePath = (req, folder, fileName) => {
   // Assuming 'public' is served as static, so it's not part of the URL
-  return `${req.protocol}://${req.get('host')}/uploads/${folder}/${fileName}`;
+  return `${req.protocol}://${req.get("host")}/uploads/${folder}/${fileName}`;
 };
 
 /**
  * Returns the relative path for database storage and unlinking
  */
 export const getLocalFilePath = (folder, fileName) => {
-  return path.join('public', 'uploads', folder, fileName);
+  return path.join("public", "uploads", folder, fileName);
 };
 
 /**
