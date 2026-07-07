@@ -1,26 +1,35 @@
-import { StatusCodes } from 'http-status-codes';
-import { ApiError } from '../../utils/ApiError.js';
-import { ApiResponse } from '../../utils/ApiResponse.js';
-import { ContactModel, StatusModel } from '../../models/index.js';
-import { asyncHandler } from '../../utils/asyncHandler.js';
-import mongoose from 'mongoose';
+import { StatusCodes } from "http-status-codes";
+import { ApiError } from "../../utils/ApiError.js";
+import { ApiResponse } from "../../utils/ApiResponse.js";
+import { ContactModel, StatusModel } from "../../models/index.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+import mongoose from "mongoose";
 import {
   deleteFileFromCloudinary,
   uploadFileToCloudinary,
-} from '../../configs/cloudinary.config.js';
-import { getLocalFilePath, getStaticFilePath, removeLocalFile } from '../../helper.js';
+} from "../../configs/cloudinary.config.js";
+import {
+  getLocalFilePath,
+  getStaticFilePath,
+  removeLocalFile,
+} from "../../helper.js";
+import { SocketEventEnum } from "../../constants/constants.js";
 
 const mode = process.env.NODE_ENV;
 
 export const postTextStatus = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { text, backgroundColor, type, privacyType, selectedContactIds } = req.body;
+  const { text, backgroundColor, type, privacyType, selectedContactIds } =
+    req.body;
 
   let finalVisibility = [];
 
-  if (privacyType === 'all_contacts') {
+  if (privacyType === "all_contacts") {
     // Fetch all contacts for this user
-    const contacts = await ContactModel.find({ owner: userId, isBlocked: false });
+    const contacts = await ContactModel.find({
+      owner: userId,
+      isBlocked: false,
+    });
     finalVisibility = contacts.map((c) => c.contact);
   } else {
     finalVisibility = selectedContactIds;
@@ -28,46 +37,77 @@ export const postTextStatus = asyncHandler(async (req, res) => {
 
   const statusDoc = await StatusModel.create({
     postedBy: userId,
-    type: 'text',
+    type: "text",
     textContent: { text, backgroundColor, type },
     privacyType,
     visibleTo: finalVisibility,
   });
 
-  await statusDoc.populate('postedBy', 'name username avatar');
+  await statusDoc.populate("postedBy", "name username avatar");
 
-  return new ApiResponse(StatusCodes.CREATED, 'Status Posted', statusDoc);
+  const io = req.app.get("io");
+  if (io) {
+    finalVisibility.forEach((visibleUserId) => {
+      io.to(`user:${visibleUserId.toString()}`).emit(
+        SocketEventEnum.NEW_STATUS_EVENT,
+        statusDoc,
+      );
+    });
+  }
+
+  return new ApiResponse(StatusCodes.CREATED, "Status Posted", statusDoc);
 });
 
 export const postNewStatus = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
-  const { metadata, privacyType, selectedContactIds } = req.body;
+  const {
+    metadata,
+    privacyType,
+    selectedContactIds: rawSelectedContactIds,
+  } = req.body;
+  const selectedContactIds = rawSelectedContactIds
+    ? JSON.parse(rawSelectedContactIds)
+    : [];
 
   const parsedMetadata = JSON.parse(metadata);
   const statusFiles = req.files.statusMedias;
 
   if (!statusFiles || statusFiles.length === 0) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'At least one media file is required');
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "At least one media file is required",
+    );
   }
 
   if (statusFiles.length !== parsedMetadata.length) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Metadata count must match file count');
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "Metadata count must match file count",
+    );
   }
 
   let finalVisibility = [];
 
-  if (privacyType === 'all_contacts') {
-    // Fetch all contacts for this user
-    const contacts = await ContactModel.find({ owner: userId, isBlocked: false });
+  if (privacyType === "all_contacts") {
+    const contacts = await ContactModel.find({
+      owner: userId,
+      isBlocked: false,
+    });
     finalVisibility = contacts.map((c) => c.contact);
   } else {
+    if (!Array.isArray(selectedContactIds) || selectedContactIds.length === 0) {
+      throw new ApiError(
+        StatusCodes.BAD_REQUEST,
+        "selectedContactIds is required for this privacy type",
+      );
+    }
     finalVisibility = selectedContactIds;
   }
 
   let mediaFilesResult = [];
 
   if (statusFiles && statusFiles.length > 0) {
-    if (mode === 'production') {
+    if (mode === "production") {
       const uploadPromises = statusFiles.map(async (file) => {
         return uploadFileToCloudinary(
           file.buffer,
@@ -87,10 +127,10 @@ export const postNewStatus = asyncHandler(async (req, res) => {
       for (const file of statusFiles) {
         let category;
 
-        if (file.mimetype.startsWith('image/')) {
-          category = 'images';
-        } else if (file.mimetype.startsWith('video/')) {
-          category = 'videos';
+        if (file.mimetype.startsWith("image/")) {
+          category = "images";
+        } else if (file.mimetype.startsWith("video/")) {
+          category = "videos";
         }
 
         const fileUrl = getStaticFilePath(req, category, file.filename);
@@ -124,10 +164,30 @@ export const postNewStatus = asyncHandler(async (req, res) => {
 
   const savedStatuses = await StatusModel.insertMany(statusDocs);
 
-  // Populate user details
-  await StatusModel.populate(savedStatuses, { path: 'postedBy', select: 'name username avatar' });
+  console.log({ finalVisibility });
 
-  return new ApiResponse(200, 'Status Posted', savedStatuses);
+  return new ApiResponse(200, "Status Posted", savedStatuses);
+
+  // Populate user details
+  await StatusModel.populate(savedStatuses, {
+    path: "postedBy",
+    select: "name username avatar",
+  });
+
+  const io = req.app.get("io");
+
+  if (io) {
+    finalVisibility.forEach((visibleUserId) => {
+      savedStatuses.forEach((status) => {
+        io.to(`user:${visibleUserId.toString()}`).emit(
+          SocketEventEnum.NEW_STATUS_EVENT,
+          status,
+        );
+      });
+    });
+  }
+
+  return new ApiResponse(200, "Status Posted", savedStatuses);
 });
 
 export const getStatusStoriesFeed = asyncHandler(async (req, res) => {
@@ -148,21 +208,21 @@ export const getStatusStoriesFeed = asyncHandler(async (req, res) => {
 
     {
       $group: {
-        _id: '$postedBy',
-        items: { $push: '$$ROOT' }, // Put all their statuses into an 'items' array
-        lastUpdated: { $first: '$createdAt' },
+        _id: "$postedBy",
+        items: { $push: "$$ROOT" }, // Put all their statuses into an 'items' array
+        lastUpdated: { $first: "$createdAt" },
       },
     },
     // Populate user details
     {
       $lookup: {
-        from: 'users',
-        localField: '_id',
-        foreignField: '_id',
-        as: 'user',
+        from: "users",
+        localField: "_id",
+        foreignField: "_id",
+        as: "user",
       },
     },
-    { $unwind: '$user' },
+    { $unwind: "$user" },
 
     // Sort groups by last update
     { $sort: { lastUpdated: -1 } },
@@ -170,13 +230,17 @@ export const getStatusStoriesFeed = asyncHandler(async (req, res) => {
     // Remove sensitive user data
     {
       $project: {
-        'user.password': 0,
-        'user.email': 0,
+        "user.password": 0,
+        "user.email": 0,
       },
     },
   ]);
 
-  return new ApiResponse(StatusCodes.OK, 'Status feed fetched successfully', statuses);
+  return new ApiResponse(
+    StatusCodes.OK,
+    "Status feed fetched successfully",
+    statuses,
+  );
 });
 
 export const getUserStatusStories = asyncHandler(async (req, res) => {
@@ -193,56 +257,61 @@ export const getUserStatusStories = asyncHandler(async (req, res) => {
     // Populate viewers
     {
       $lookup: {
-        from: 'users',
-        localField: 'viewedBy',
-        foreignField: '_id',
-        as: 'viewedByDetails',
+        from: "users",
+        localField: "viewedBy",
+        foreignField: "_id",
+        as: "viewedByDetails",
       },
     },
 
     {
       $group: {
-        _id: '$postedBy',
+        _id: "$postedBy",
         items: {
           $push: {
-            _id: '$_id',
-            type: '$type',
-            caption: '$caption',
-            mediaContent: '$mediaContent',
-            textContent: '$textContent',
-            createdAt: '$createdAt',
-            expiresAt: '$expiresAt',
-            viewedBy: '$viewedByDetails',
-            viewCount: { $size: '$viewedBy' },
+            _id: "$_id",
+            type: "$type",
+            caption: "$caption",
+            mediaContent: "$mediaContent",
+            textContent: "$textContent",
+            createdAt: "$createdAt",
+            expiresAt: "$expiresAt",
+            viewedBy: "$viewedByDetails",
+            viewCount: { $size: "$viewedBy" },
           },
         },
-        lastUpdated: { $last: '$createdAt' },
+        lastUpdated: { $last: "$createdAt" },
       },
     },
 
     {
       $lookup: {
-        from: 'users',
-        localField: '_id',
-        foreignField: '_id',
-        as: 'user',
+        from: "users",
+        localField: "_id",
+        foreignField: "_id",
+        as: "user",
       },
     },
-    { $unwind: '$user' },
+    { $unwind: "$user" },
 
     {
       $project: {
-        'user.password': 0,
-        'user.email': 0,
-        'items.viewedBy.password': 0,
-        'items.viewedBy.email': 0,
+        "user.password": 0,
+        "user.refreshToken": 0,
+        "user.emailVerificationExpiry": 0,
+        "user.emailVerificationToken": 0,
+
+        "items.viewedBy.password": 0,
+        "items.viewedBy.refreshToken": 0,
+        "items.viewedBy.emailVerificationExpiry": 0,
+        "items.viewedBy.emailVerificationToken": 0,
       },
     },
   ]);
 
   return new ApiResponse(
     StatusCodes.OK,
-    'User status fetched successfully',
+    "User status fetched successfully",
     statusStories.length > 0 ? statusStories[0] : null,
   );
 });
@@ -253,19 +322,19 @@ export const markStatusAsViewed = asyncHandler(async (req, res) => {
 
   // Validate status ID
   if (!mongoose.Types.ObjectId.isValid(statusId)) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid status ID');
+    throw new ApiError(StatusCodes.BAD_REQUEST, "Invalid status ID");
   }
 
   // Find status
   const status = await StatusModel.findById(statusId);
 
   if (!status) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Status not found');
+    throw new ApiError(StatusCodes.NOT_FOUND, "Status not found");
   }
 
   // Check if status is expired
   if (new Date(status.expiresAt) < new Date()) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Status has expired');
+    throw new ApiError(StatusCodes.BAD_REQUEST, "Status has expired");
   }
 
   // Check if user has permission to view
@@ -274,11 +343,16 @@ export const markStatusAsViewed = asyncHandler(async (req, res) => {
     status.visibleTo.some((id) => id.toString() === userId.toString());
 
   if (!canView) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'You do not have permission to view this status');
+    throw new ApiError(
+      StatusCodes.FORBIDDEN,
+      "You do not have permission to view this status",
+    );
   }
 
   // Check if already viewed
-  const alreadyViewed = status.viewedBy.some((id) => id.toString() === userId.toString());
+  const alreadyViewed = status.viewedBy.some(
+    (id) => id.toString() === userId.toString(),
+  );
 
   if (!alreadyViewed) {
     // Add user to viewedBy array
@@ -286,43 +360,70 @@ export const markStatusAsViewed = asyncHandler(async (req, res) => {
     await status.save();
   }
 
-  return new ApiResponse(StatusCodes.OK, 'Status marked as viewed', { statusId, viewedBy: userId });
+  return new ApiResponse(StatusCodes.OK, "Status marked as viewed", {
+    statusId,
+    viewedBy: userId,
+  });
 });
 
 export const deleteUserStatusStories = asyncHandler(async (req, res) => {
   const { statusId } = req.params;
   const userId = req.user._id;
 
-  // Validate status ID
   if (!mongoose.Types.ObjectId.isValid(statusId)) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid status ID');
+    throw new ApiError(StatusCodes.BAD_REQUEST, "Invalid status ID");
   }
 
-  // Find status
   const status = await StatusModel.findById(statusId);
 
   if (!status) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Status not found');
+    throw new ApiError(StatusCodes.NOT_FOUND, "Status not found");
   }
 
-  // Check if user owns the status
   if (status.postedBy.toString() !== userId.toString()) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'You can only delete your own status');
+    throw new ApiError(
+      StatusCodes.FORBIDDEN,
+      "You can only delete your own status",
+    );
   }
 
-  // Delete media from cloudinary/local storage
   if (status.mediaContent?.public_id) {
-    if (mode === 'production') {
+    if (mode === "production") {
       await deleteFileFromCloudinary(status.mediaContent.public_id);
     } else if (status.mediaContent.localPath) {
       removeLocalFile(status.mediaContent.localPath);
     }
   }
 
-  // Delete status from database
+  // ✅ Capture visibility + poster BEFORE deleting, since the doc won't exist after
+  const visibleTo = status.visibleTo;
+  const postedBy = status.postedBy.toString();
+
   await StatusModel.findByIdAndDelete(statusId);
 
-  return new ApiResponse(StatusCodes.OK, 'Status deleted successfully', { statusId });
+  // ✅ Notify everyone who could see this status that it's gone
+  const io = req.app.get("io");
+  if (io) {
+    // Also notify the poster's own other sessions/tabs
+    io.to(`user:${postedBy}`).emit(SocketEventEnum.STATUS_DELETED_EVENT, {
+      statusId,
+      postedBy,
+    });
+
+    visibleTo.forEach((visibleUserId) => {
+      io.to(`user:${visibleUserId.toString()}`).emit(
+        SocketEventEnum.STATUS_DELETED_EVENT,
+        {
+          statusId,
+          postedBy,
+        },
+      );
+    });
+  }
+
+  return new ApiResponse(StatusCodes.OK, "Status deleted successfully", {
+    statusId,
+  });
 });
 
 export const cleanupExpiredStatuses = asyncHandler(async (req, res) => {
@@ -333,11 +434,11 @@ export const cleanupExpiredStatuses = asyncHandler(async (req, res) => {
   // Delete media files
   for (const status of expiredStatuses) {
     if (status.mediaContent?.public_id) {
-      if (mode === 'production') {
+      if (mode === "production") {
         try {
           await deleteFileFromCloudinary(status.mediaContent.public_id);
         } catch (error) {
-          console.error('Error deleting from cloudinary:', error);
+          console.error("Error deleting from cloudinary:", error);
         }
       } else if (status.mediaContent.localPath) {
         removeLocalFile(status.mediaContent.localPath);
@@ -350,7 +451,7 @@ export const cleanupExpiredStatuses = asyncHandler(async (req, res) => {
     expiresAt: { $lt: new Date() },
   });
 
-  return new ApiResponse(StatusCodes.OK, 'Expired statuses cleaned up', {
+  return new ApiResponse(StatusCodes.OK, "Expired statuses cleaned up", {
     deletedCount: result.deletedCount,
   });
 });
