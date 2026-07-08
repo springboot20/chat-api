@@ -1,15 +1,17 @@
-import mongoose from 'mongoose';
-import { ContactModel, userModel } from '../../models/index.js';
-import { asyncHandler } from '../../utils/asyncHandler.js';
-import { ApiError } from '../../utils/ApiError.js';
-import { ApiResponse } from '../../utils/ApiResponse.js';
-import { StatusCodes } from 'http-status-codes';
+import mongoose from "mongoose";
+import { ContactModel, userModel } from "../../models/index.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+import { ApiError } from "../../utils/ApiError.js";
+import { ApiResponse } from "../../utils/ApiResponse.js";
+import { StatusCodes } from "http-status-codes";
 
 export const getSuggestedFriends = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
   // 1. Get IDs of people already in user's contacts
-  const myContacts = await ContactModel.find({ owner: userId }).select('contact');
+  const myContacts = await ContactModel.find({ owner: userId }).select(
+    "contact",
+  );
   const contactIds = myContacts.map((c) => c.contact);
 
   // 2. Find users who are NOT me and NOT already my contacts
@@ -29,32 +31,44 @@ export const getSuggestedFriends = asyncHandler(async (req, res) => {
     },
   ]);
 
-  return new ApiResponse(200, 'Suggestions fetched successfully', suggestedUsers);
+  return new ApiResponse(
+    200,
+    "Suggestions fetched successfully",
+    suggestedUsers,
+  );
 });
 
 export const getBlockedContacts = asyncHandler(async (req, res) => {
   const blockedList = await ContactModel.find({
     owner: req.user._id,
     isBlocked: true,
-  }).populate('contact', 'username avatar email');
+  }).populate("contact", "username avatar email");
 
-  return new ApiResponse(StatusCodes.OK, 'Blocked contacts fetched', blockedList);
+  return new ApiResponse(
+    StatusCodes.OK,
+    "Blocked contacts fetched",
+    blockedList,
+  );
 });
 
 export const getMyContacts = asyncHandler(async (req, res) => {
   const { page, limit } = req.query;
 
-  const parsedPage = Math.min(1, parseInt(page) || 1);
-  const parsedLimit = Math.min(1, parseInt(limit) || 10);
+  const parsedPage = Math.max(1, parseInt(page) || 1);
+  const parsedLimit = Math.max(1, parseInt(limit) || 10);
   const skip = (parsedPage - 1) * parsedLimit;
 
-  const contacts = await ContactModel.find({ owner: req.user._id, isBlocked: false })
-    .populate('contact', 'username avatar email')
-    .skip(skip)
-    .limit(parsedLimit)
-    .sort('-createdAt');
+  const filter = { owner: req.user._id, isBlocked: false };
 
-  const total = contacts.length;
+  const [contacts, total] = await Promise.all([
+    ContactModel.find(filter)
+      .populate("contact", "username avatar email")
+      .skip(skip)
+      .limit(parsedLimit)
+      .sort("-createdAt"),
+    ContactModel.countDocuments(filter),
+  ]);
+
   const totalPages = Math.ceil(total / parsedLimit);
   const hasMore = parsedPage < totalPages;
 
@@ -69,7 +83,7 @@ export const getMyContacts = asyncHandler(async (req, res) => {
     },
   };
 
-  return new ApiResponse(200, 'Contacts fetched successfully', data);
+  return new ApiResponse(200, "Contacts fetched successfully", data);
 });
 
 export const addToContact = asyncHandler(async (req, res) => {
@@ -81,7 +95,8 @@ export const addToContact = asyncHandler(async (req, res) => {
     contact: new mongoose.Types.ObjectId(contactId),
   });
 
-  if (existingContact) return new ApiError(StatusCodes.CONFLICT, 'Already in Contact');
+  if (existingContact)
+    throw new ApiError(StatusCodes.CONFLICT, "Already in Contact");
 
   const createdContact = await ContactModel.create({
     owner: userId,
@@ -89,7 +104,7 @@ export const addToContact = asyncHandler(async (req, res) => {
     category,
   });
 
-  return new ApiResponse(StatusCodes.CREATED, 'Contact added', createdContact);
+  return new ApiResponse(StatusCodes.CREATED, "Contact added", createdContact);
 });
 
 export const toggleBlockContact = asyncHandler(async (req, res) => {
@@ -102,7 +117,7 @@ export const toggleBlockContact = asyncHandler(async (req, res) => {
   });
 
   if (!contact) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Contact not found in your list');
+    throw new ApiError(StatusCodes.NOT_FOUND, "Contact not found in your list");
   }
 
   // Toggle the blocked status
@@ -111,7 +126,7 @@ export const toggleBlockContact = asyncHandler(async (req, res) => {
 
   return new ApiResponse(
     StatusCodes.OK,
-    `User ${contact.isBlocked ? 'blocked' : 'unblocked'} successfully`,
+    `User ${contact.isBlocked ? "blocked" : "unblocked"} successfully`,
     contact,
   );
 });

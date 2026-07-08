@@ -542,7 +542,7 @@ const getUsers = asyncHandler(async (req, res) => {
   const matchCondition = {
     _id: {
       $ne: new mongoose.Types.ObjectId(userId), // Exclude me
-      $nin: contactIds, // Exclude my contacts
+      // $nin: contactIds, // Exclude my contacts
     },
   };
 
