@@ -1,22 +1,18 @@
-import { Schema, model } from 'mongoose';
+import { Schema, model } from "mongoose";
 
-const ContactSchema = new Schema(
+const ContactEntrySchema = new Schema(
   {
-    owner: {
-      type: Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-      index: true,
-    },
     category: {
       type: String,
-      enum: ['friend', 'family', 'work', 'other'],
-      default: 'friend',
+      enum: ["friend", "family", "work", "other"],
+      default: "friend",
     },
+
     contact: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
     },
+
     isBlocked: {
       type: Boolean,
       default: false,
@@ -25,6 +21,18 @@ const ContactSchema = new Schema(
   { timestamps: true },
 );
 
-ContactSchema.index({ owner: 1, contact: 1 }, { unique: true });
+const ContactSchema = new Schema(
+  {
+    owner: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    contactsList: [ContactEntrySchema],
+  },
+  { timestamps: true },
+);
 
-export const ContactModel = model('Contact', ContactSchema);
+// ContactSchema.index({ owner: 1 , });
+
+export const ContactModel = model("Contact", ContactSchema);

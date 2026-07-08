@@ -10,9 +10,9 @@ export const getSuggestedFriends = asyncHandler(async (req, res) => {
 
   // 1. Get IDs of people already in user's contacts
   const myContacts = await ContactModel.find({ owner: userId }).select(
-    "contact",
+    "contactsList",
   );
-  const contactIds = myContacts.map((c) => c.contact);
+  const contactIds = myContacts?.contactsList.map((c) => c.contact) || [];
 
   // 2. Find users who are NOT me and NOT already my contacts
   const suggestedUsers = await userModel.aggregate([
@@ -39,10 +39,48 @@ export const getSuggestedFriends = asyncHandler(async (req, res) => {
 });
 
 export const getBlockedContacts = asyncHandler(async (req, res) => {
-  const blockedList = await ContactModel.find({
-    owner: req.user._id,
-    isBlocked: true,
-  }).populate("contact", "username avatar email");
+  const blockedList = await ContactModel.aggregate([
+    {
+      $match: {
+        owner: req.user._id,
+      },
+    },
+    { $unwind: "contactsList" },
+    {
+      $match: {
+        "contactsList.isBlocked": true,
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "contactsList.contact",
+        foreignField: "_id",
+        as: "contactsList.contact",
+        pipeline: [
+          {
+            $project: {
+              username: 1,
+              avatar: 1,
+              email: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $addFields: {
+        "contactsList.contact": {
+          $first: "$contactsList.contact",
+        },
+      },
+    },
+    {
+      $replaceRoot: {
+        newRoot: "$contactsList",
+      },
+    },
+  ]);
 
   return new ApiResponse(
     StatusCodes.OK,
@@ -54,21 +92,74 @@ export const getBlockedContacts = asyncHandler(async (req, res) => {
 export const getMyContacts = asyncHandler(async (req, res) => {
   const { page, limit } = req.query;
 
+  const userId = req.user._id;
   const parsedPage = Math.max(1, parseInt(page) || 1);
   const parsedLimit = Math.max(1, parseInt(limit) || 10);
   const skip = (parsedPage - 1) * parsedLimit;
 
-  const filter = { owner: req.user._id, isBlocked: false };
+  const basePipeline = [
+    {
+      $match: {
+        owner: userId,
+      },
+    },
+    { $unwind: "$contactsList" },
+    {
+      $match: {
+        "contactsList.isBlocked": false,
+      },
+    },
+  ];
 
-  const [contacts, total] = await Promise.all([
-    ContactModel.find(filter)
-      .populate("contact", "username avatar email")
-      .skip(skip)
-      .limit(parsedLimit)
-      .sort("-createdAt"),
-    ContactModel.countDocuments(filter),
+  const [contacts, totalResult] = await Promise.all([
+    ContactModel.aggregate([
+      ...basePipeline,
+      {
+        $sort: {
+          "contactsList.createdAt": -1,
+        },
+      },
+      { $skip: skip },
+      { $limit: parsedLimit },
+      {
+        $lookup: {
+          from: "users",
+          foreignField: "_id",
+          localField: "contactsList.contact",
+          as: "contactsList.contact",
+          pipeline: [
+            {
+              $project: {
+                username: 1,
+                email: 1,
+                avatar: 1,
+              },
+            },
+          ],
+        },
+      },
+      {
+        $addFields: {
+          "contactsList.contact": {
+            $first: "$contactsList.contact",
+          },
+        },
+      },
+      {
+        $replaceRoot: {
+          newRoot: "$contactsList",
+        },
+      },
+    ]),
+    ContactModel.aggregate([
+      ...basePipeline,
+      {
+        $count: "total",
+      },
+    ]),
   ]);
 
+  const total = totalResult[0]?.total || 0;
   const totalPages = Math.ceil(total / parsedLimit);
   const hasMore = parsedPage < totalPages;
 
@@ -90,19 +181,39 @@ export const addToContact = asyncHandler(async (req, res) => {
   const { category, contactId } = req.body;
   const userId = req.user._id;
 
-  const existingContact = await ContactModel.findOne({
-    owner: userId,
-    contact: new mongoose.Types.ObjectId(contactId),
-  });
+  const contactObjectId = new mongoose.Types.ObjectId(contactId);
+  const ownerDoc = await ContactModel.findOne({ owner: userId });
 
-  if (existingContact)
-    throw new ApiError(StatusCodes.CONFLICT, "Already in Contact");
+  const existingContactEntry = ownerDoc?.contactsList?.find(
+    (contact) => contact.contact.toString() === contactId.toString(),
+  );
 
-  const createdContact = await ContactModel.create({
-    owner: userId,
-    contact: contactId,
-    category,
-  });
+  if (existingContactEntry) {
+    if (!existingContactEntry.isBlocked)
+      throw new ApiError(StatusCodes.CONFLICT, "Already in Contact");
+
+    existingContactEntry.isBlocked = false;
+    existingContactEntry.category = category || existingContactEntry.category;
+    await ownerDoc.save();
+
+    return new ApiResponse(StatusCodes.OK, "Contact re-added", existingContactEntry);
+  }
+
+  const updatedDoc = await ContactModel.findOneAndUpdate(
+    { owner: userId },
+    {
+      $push: {
+        contactsList: {
+          contact: contactObjectId,
+          category,
+        },
+      },
+    },
+    { new: true, upsert: true },
+  );
+
+  const createdContact =
+    updatedDoc.contactsList[updatedDoc.contactsList.length - 1];
 
   return new ApiResponse(StatusCodes.CREATED, "Contact added", createdContact);
 });
@@ -111,22 +222,27 @@ export const toggleBlockContact = asyncHandler(async (req, res) => {
   const { contactId } = req.params;
   const userId = req.user._id;
 
-  const contact = await ContactModel.findOne({
-    owner: userId,
-    contact: contactId,
-  });
+  const ownerDoc = await ContactModel.findOne({ owner: userId });
 
-  if (!contact) {
+  if (!ownerDoc) {
+    throw new ApiError(StatusCodes.NOT_FOUND, "Contact not found in your list");
+  }
+
+  const entry = ownerDoc.contactsList.find(
+    (c) => c.contact.toString() === contactId,
+  );
+
+  if (!entry) {
     throw new ApiError(StatusCodes.NOT_FOUND, "Contact not found in your list");
   }
 
   // Toggle the blocked status
-  contact.isBlocked = !contact.isBlocked;
-  await contact.save();
+  entry.isBlocked = !entry.isBlocked;
+  await ownerDoc.save();
 
   return new ApiResponse(
     StatusCodes.OK,
-    `User ${contact.isBlocked ? "blocked" : "unblocked"} successfully`,
-    contact,
+    `User ${entry.isBlocked ? "blocked" : "unblocked"} successfully`,
+    entry,
   );
 });
