@@ -26,10 +26,27 @@ export const postTextStatus = asyncHandler(async (req, res) => {
 
   if (privacyType === "all_contacts") {
     // Fetch all contacts for this user
-    const contacts = await ContactModel.find({
-      owner: userId,
-      isBlocked: false,
-    });
+    const contacts = await ContactModel.aggregate([
+      {
+        $match: {
+          owner: userId,
+        },
+      },
+      {
+        $unwind: "$contactsList",
+      },
+      {
+        $match: {
+          "contactsList.isBlocked": false,
+        },
+      },
+      {
+        $replaceRoot: {
+          newRoot: "$contactsList",
+        },
+      },
+    ]);
+
     finalVisibility = contacts.map((c) => c.contact);
   } else {
     finalVisibility = selectedContactIds;
@@ -89,10 +106,26 @@ export const postNewStatus = asyncHandler(async (req, res) => {
   let finalVisibility = [];
 
   if (privacyType === "all_contacts") {
-    const contacts = await ContactModel.find({
-      owner: userId,
-      isBlocked: false,
-    });
+    const contacts = await ContactModel.aggregate([
+      {
+        $match: {
+          owner: userId,
+        },
+      },
+      {
+        $unwind: "$contactsList",
+      },
+      {
+        $match: {
+          "contactsList.isBlocked": false,
+        },
+      },
+      {
+        $replaceRoot: {
+          newRoot: "$contactsList",
+        },
+      },
+    ]);
     finalVisibility = contacts.map((c) => c.contact);
   } else {
     if (!Array.isArray(selectedContactIds) || selectedContactIds.length === 0) {
@@ -163,9 +196,7 @@ export const postNewStatus = asyncHandler(async (req, res) => {
   });
 
   const savedStatuses = await StatusModel.insertMany(statusDocs);
-
-  console.log({ finalVisibility });
-
+  
   return new ApiResponse(200, "Status Posted", savedStatuses);
 
   // Populate user details
