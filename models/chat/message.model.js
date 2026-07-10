@@ -1,4 +1,21 @@
-import { Schema, model } from 'mongoose';
+import { Schema, model } from "mongoose";
+
+const linkPreviewSchema = new Schema(
+  {
+    url: {
+      type: String,
+    },
+    title: String,
+    description: String,
+    image: String,
+    favicon: String,
+    siteName: String,
+    hostname: String,
+  },
+  {
+    _id: false,
+  },
+);
 
 const messageSchema = new Schema(
   {
@@ -8,8 +25,8 @@ const messageSchema = new Schema(
 
     contentType: {
       type: String,
-      enum: ['text-file', 'polling', 'event', 'contact'],
-      default: 'text-file',
+      enum: ["text-file", "polling", "event", "contact"],
+      default: "text-file",
     },
 
     polling: {
@@ -24,7 +41,7 @@ const messageSchema = new Schema(
               responses: [
                 {
                   type: Schema.Types.ObjectId,
-                  ref: 'User',
+                  ref: "User",
                 },
               ],
             },
@@ -38,19 +55,21 @@ const messageSchema = new Schema(
 
     status: {
       type: String,
-      enum: ['sent', 'delivered', 'seen'],
-      default: 'sent',
+      enum: ["sent", "delivered", "seen"],
+      default: "sent",
     },
+
     deliveredTo: [
       {
         type: Schema.Types.ObjectId,
-        ref: 'User',
+        ref: "User",
       },
     ],
+
     seenBy: [
       {
         type: Schema.Types.ObjectId,
-        ref: 'User',
+        ref: "User",
       },
     ],
 
@@ -59,7 +78,7 @@ const messageSchema = new Schema(
         {
           userId: {
             type: Schema.Types.ObjectId,
-            ref: 'User',
+            ref: "User",
           },
           position: {
             type: Number,
@@ -71,6 +90,7 @@ const messageSchema = new Schema(
       ],
       default: [],
     },
+
     attachments: {
       type: [
         {
@@ -79,7 +99,7 @@ const messageSchema = new Schema(
           public_id: String,
           fileType: {
             type: String,
-            enum: ['image', 'document', 'video', 'voice'], // Add 'voice'
+            enum: ["image", "document", "video", "voice"], // Add 'voice'
           },
           fileName: String,
           fileSize: Number,
@@ -90,31 +110,35 @@ const messageSchema = new Schema(
       ],
       default: [],
     },
+
     sender: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
     },
+
     chat: {
       type: Schema.Types.ObjectId,
-      ref: 'Chat',
+      ref: "Chat",
     },
+
     isDeleted: {
       type: Boolean,
       default: false,
     },
+    
     reactions: {
       type: [
         {
           messageId: {
             type: Schema.Types.ObjectId,
-            ref: 'Message',
+            ref: "Message",
           },
           emoji: String,
           userIds: {
             type: [
               {
                 type: Schema.Types.ObjectId,
-                ref: 'User',
+                ref: "User",
               },
             ],
             default: [],
@@ -123,13 +147,19 @@ const messageSchema = new Schema(
       ],
       default: [],
     },
+
     replyId: {
       type: Schema.Types.ObjectId,
-      ref: 'ChatMessage',
+      ref: "ChatMessage",
+    },
+
+    linkPreview: {
+      type: linkPreviewSchema,
+      default: null,
     },
   },
   { timestamps: true },
 );
 
-const messageModel = model('ChatMessage', messageSchema);
+const messageModel = model("ChatMessage", messageSchema);
 export { messageModel };
