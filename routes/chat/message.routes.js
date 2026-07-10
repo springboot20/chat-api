@@ -1,31 +1,48 @@
-import { Router } from 'express';
-import { messageController } from '../../controllers/index.js';
-import { verifyJWT } from '../../middlewares/auth.middleware.js';
-import { mongoPathVariableValidation } from '../../validation/mongo/mongoId.validators.js';
-import { validate } from '../../validation/validate.middleware.js';
-import { upload } from '../../middlewares/multer.middleware.js';
+import { Router } from "express";
+import { messageController } from "../../controllers/index.js";
+import { verifyJWT } from "../../middlewares/auth.middleware.js";
+import { mongoPathVariableValidation } from "../../validation/mongo/mongoId.validators.js";
+import { validate } from "../../validation/validate.middleware.js";
+import { upload } from "../../middlewares/multer.middleware.js";
+import { getLinkPreview } from "../../controllers/chat/message.controller.js";
 
 export const router = Router();
 
 router.use(verifyJWT);
 
 router
-  .route('/:chatId')
-  .get(mongoPathVariableValidation('chatId'), validate, messageController.getAllChats)
-  .post(upload.fields([{ name: 'attachments' }]), messageController.createMessage);
+  .route("/:chatId")
+  .get(
+    mongoPathVariableValidation("chatId"),
+    validate,
+    messageController.getAllChats,
+  )
+  .post(
+    upload.fields([{ name: "attachments" }]),
+    messageController.createMessage,
+  );
 
-router.route('/:chatId/polling-vote').post(messageController.createPollingVote);
+router.route("/:chatId/polling-vote").post(messageController.createPollingVote);
 
 router
-  .route('/:chatId/:messageId/polling-vote/vote/:optionId')
+  .route("/:chatId/:messageId/polling-vote/vote/:optionId")
   .patch(messageController.toggleVoteToPollingVote);
 
 router
-  .route('/:chatId/:messageId/reply')
-  .patch(upload.fields([{ name: 'attachments' }]), messageController.replyToMessage);
+  .route("/:chatId/:messageId/reply")
+  .patch(
+    upload.fields([{ name: "attachments" }]),
+    messageController.replyToMessage,
+  );
 
-router.route('/:chatId/:messageId/react').patch(messageController.reactToMessage);
+router
+  .route("/:chatId/:messageId/react")
+  .patch(messageController.reactToMessage);
 
-router.route('/:chatId/:messageId/delete').delete(messageController.deleteChatMessage);
+router
+  .route("/:chatId/:messageId/delete")
+  .delete(messageController.deleteChatMessage);
 
-router.route('/:chatId/messages/seen').put(messageController.markMessagesAsSeen);
+router
+  .route("/:chatId/messages/seen")
+  .put(messageController.markMessagesAsSeen);

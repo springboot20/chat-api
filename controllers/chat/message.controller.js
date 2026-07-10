@@ -1,7 +1,11 @@
 import { StatusCodes } from "http-status-codes";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
-import { chatModel, messageModel } from "../../models/index.js";
+import {
+  chatModel,
+  LinkPreviewModel,
+  messageModel,
+} from "../../models/index.js";
 import {
   getLocalFilePath,
   getStaticFilePath,
@@ -21,6 +25,7 @@ import {
   uploadFileToCloudinary,
 } from "../../configs/cloudinary.config.js";
 import { getOrSetCache, invalidateCache } from "../../utils/cache.js";
+import ogs from "open-graph-scraper";
 
 const mode = process.env.NODE_ENV;
 
@@ -272,6 +277,59 @@ const pipelineAggregation = () => {
     },
   ];
 };
+
+export const getLinkPreview = asyncHandler(async (req, res) => {
+  const { url } = req.query;
+
+  if (!url || typeof url !== "string") {
+    throw new ApiError(StatusCodes.BAD_REQUEST, "A valid URL is required");
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new ApiError(StatusCodes.BAD_REQUEST, "Invalid URL format");
+  }
+
+  const cached = await LinkPreviewModel.findOne({ url });
+
+  if (cached) {
+    return new ApiResponse(200, "Cached preview", cached);
+  }
+
+  let result;
+  try {
+    ({ result } = await ogs({ url, timeout: 5000 }));
+  } catch (err) {
+    console.error("open-graph-scraper failed:", err);
+    throw new ApiError(
+      StatusCodes.BAD_GATEWAY,
+      "Could not fetch link preview for this URL",
+    );
+  }
+
+  const preview = {
+    url,
+    title: result.ogTitle || result.twitterTitle || "",
+    description: result.ogDescription || result.twitterDescription || "",
+    image: result.ogImage?.[0]?.url || "",
+    favicon: result.favicon || "",
+    siteName: result.ogSiteName || "",
+    hostname: parsedUrl.hostname,
+  };
+
+  try {
+    await LinkPreviewModel.create(preview);
+  } catch (err) {
+    // Duplicate-key race: another request already cached this URL — just return the fresh preview data anyway
+    if (err.code !== 11000) {
+      console.error("Failed to cache link preview:", err.message);
+    }
+  }
+
+  return new ApiResponse(StatusCodes.OK, "Preview generated", preview);
+});
 
 export const getAllChats = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
@@ -538,7 +596,12 @@ export const createPollingVote = asyncHandler(async (req, res) => {
 
 export const createMessage = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
-  const { content, mentions: rawMentions, audioDuration } = req.body;
+  const {
+    content,
+    mentions: rawMentions,
+    audioDuration,
+    linkPreviewUrl,
+  } = req.body;
 
   let mentions = [];
   try {
@@ -630,6 +693,21 @@ export const createMessage = asyncHandler(async (req, res) => {
       })
     : [];
 
+  let validatedPreview = null;
+
+  if (linkPreviewUrl && linkPreviewUrl) {
+    const urlInMessage = content.match(/(https?:\/\/[^\s]+)/i)?.[0];
+
+    console.log({ urlInMessage });
+    console.log(urlInMessage === linkPreviewUrl);
+    
+    if (urlInMessage === linkPreviewUrl) {
+      validatedPreview = linkPreviewUrl;
+    }
+  }
+
+  const linkPreview = await LinkPreviewModel.findOne({ url: validatedPreview });
+
   // 1️⃣ Create message
   const message = await messageModel.create({
     content: content || "",
@@ -640,6 +718,7 @@ export const createMessage = asyncHandler(async (req, res) => {
     mentions: validatedMentions,
     deliveredTo: [],
     seenBy: [],
+    linkPreview,
   });
 
   // 2️⃣ Update lastMessage
@@ -1023,7 +1102,12 @@ export const reactToMessage = asyncHandler(async (req) => {
 
 export const replyToMessage = asyncHandler(async (req, res) => {
   const { chatId, messageId } = req.params;
-  const { content, mentions: rawMentions, audioDuration } = req.body;
+  const {
+    content,
+    mentions: rawMentions,
+    audioDuration,
+    linkPreviewUrl,
+  } = req.body;
 
   let mentions = [];
   try {
@@ -1115,6 +1199,18 @@ export const replyToMessage = asyncHandler(async (req, res) => {
       })
     : [];
 
+  let validatedPreview = null;
+
+  if (linkPreviewUrl && linkPreviewUrl) {
+    const urlInMessage = content.match(/(https?:\/\/[^\s]+)/i)?.[0];
+
+    if (urlInMessage === linkPreviewUrl) {
+      validatedPreview = linkPreviewUrl;
+    }
+  }
+
+  const linkPreview = await LinkPreviewModel.findOne({ url: validatedPreview });
+
   // 1️⃣ Create reply message
   const message = await messageModel.create({
     content: content || "",
@@ -1124,6 +1220,7 @@ export const replyToMessage = asyncHandler(async (req, res) => {
     contentType: "text-file",
     attachments,
     mentions: validatedMentions,
+    linkPreview,
   });
 
   // 2️⃣ Update lastMessage
