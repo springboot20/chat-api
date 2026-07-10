@@ -15,7 +15,7 @@ router
   .get(
     mongoPathVariableValidation("chatId"),
     validate,
-    messageController.getAllChats,
+    messageController.getAllMessages,
   )
   .post(
     upload.fields([{ name: "attachments" }]),

@@ -26,6 +26,7 @@ import {
 } from "../../configs/cloudinary.config.js";
 import { getOrSetCache, invalidateCache } from "../../utils/cache.js";
 import ogs from "open-graph-scraper";
+import redisClient from "../../configs/redis.config.js";
 
 const mode = process.env.NODE_ENV;
 
@@ -331,37 +332,69 @@ export const getLinkPreview = asyncHandler(async (req, res) => {
   return new ApiResponse(StatusCodes.OK, "Preview generated", preview);
 });
 
-export const getAllChats = asyncHandler(async (req, res) => {
+export const getAllMessages  = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
+  const currentUserId = req.user._id;
   const cacheKey = `chat_messages:${chatId}`;
 
-  const messageData = await getOrSetCache(cacheKey, async () => {
-    const chat = await chatModel.findById(chatId);
+  const chat = await chatModel.findById(chatId).select("participants");
 
-    if (!chat) {
-      throw new ApiError(StatusCodes.NOT_FOUND, "Chat not found");
+  if (!chat) {
+    throw new ApiError(StatusCodes.NOT_FOUND, "Chat not found");
+  }
+
+  if (!chat.participants.includes(currentUserId)) {
+    throw new ApiError(
+      StatusCodes.UNAUTHORIZED,
+      "You are not a participant of this chat",
+    );
+  }
+
+  let messages = [];
+
+  try {
+    const cachedMessages = await redisClient.lRange(cacheKey, 0, -1);
+    if (cachedMessages && cachedMessages.length > 0) {
+      console.log(`⚡ Cache hit for chat: ${chatId}`);
+
+      // Parse each individual message string back into a JSON object
+      messages = cachedMessages.map((msg) => JSON.parse(msg));
+    } else {
+      console.log(`🐢 Cache miss for chat: ${chatId}`);
+
+      // FALLBACK: Fetch from MongoDB using your pipeline aggregation
+      messages = await messageModel.aggregate([
+        { $match: { chat: new mongoose.Types.ObjectId(chatId) } },
+        ...pipelineAggregation(),
+      ]);
+
+      // POPULATE CACHE: If messages exist, seed them into the Redis List
+      if (messages && messages.length > 0) {
+        // Map objects to strings for Redis storage
+        const stringifiedMessages = messages.map((msg) => JSON.stringify(msg));
+
+        // Push all messages into the list at once
+        await redisClient.rPush(cacheKey, stringifiedMessages);
+
+        // Set a 15-minute (900 seconds) expiration window
+        await redisClient.expire(cacheKey, 900);
+      }
     }
-
-    if (!chat.participants.includes(req.user._id)) {
-      throw new ApiError(
-        StatusCodes.UNAUTHORIZED,
-        "You are not a participant of this chat",
-      );
-    }
-
-    const messages = await messageModel.aggregate([
-      {
-        $match: {
-          chat: new mongoose.Types.ObjectId(chatId),
-        },
-      },
+  } catch (cacheError) {
+    console.error(`❌ Redis Error, falling back to DB directly:`, cacheError);
+    // If Redis fails, fall back silently to MongoDB so the user sees no downtime
+    messages = await messageModel.aggregate([
+      { $match: { chat: new mongoose.Types.ObjectId(chatId) } },
       ...pipelineAggregation(),
     ]);
+  }
 
-    return { chatId, messages } || [];
-  });
-
-  return new ApiResponse(200, "Messages fetched successfully", messageData);
+  return res.status(200).json(
+    new ApiResponse(200, "Messages fetched successfully", {
+      chatId,
+      messages,
+    }),
+  );
 });
 
 export const toggleVoteToPollingVote = asyncHandler(async (req, res) => {
@@ -409,8 +442,6 @@ export const toggleVoteToPollingVote = asyncHandler(async (req, res) => {
     { $match: { _id: message._id } },
     ...pipelineAggregation(),
   ]);
-
-  console.log(messagePayload);
 
   // 3. Emit a specific VOTE_UPDATE event so everyone's UI updates live
   const io = req.app.get("io");
@@ -697,9 +728,6 @@ export const createMessage = asyncHandler(async (req, res) => {
 
   if (linkPreviewUrl && linkPreviewUrl) {
     const urlInMessage = content.match(/(https?:\/\/[^\s]+)/i)?.[0];
-
-    console.log({ urlInMessage });
-    console.log(urlInMessage === linkPreviewUrl);
     
     if (urlInMessage === linkPreviewUrl) {
       validatedPreview = linkPreviewUrl;

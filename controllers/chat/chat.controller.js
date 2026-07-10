@@ -1,12 +1,17 @@
-import { StatusCodes } from 'http-status-codes';
-import { ApiError } from '../../utils/ApiError.js';
-import { ApiResponse } from '../../utils/ApiResponse.js';
-import { chatModel, ContactModel, messageModel, userModel } from '../../models/index.js';
-import { removeLocalFile } from '../../helper.js';
-import mongoose from 'mongoose';
-import { asyncHandler } from '../../utils/asyncHandler.js';
-import { SocketEventEnum } from '../../constants/constants.js';
-import { getOrSetCache, invalidateCache } from '../../utils/cache.js';
+import { StatusCodes } from "http-status-codes";
+import { ApiError } from "../../utils/ApiError.js";
+import { ApiResponse } from "../../utils/ApiResponse.js";
+import {
+  chatModel,
+  ContactModel,
+  messageModel,
+  userModel,
+} from "../../models/index.js";
+import { removeLocalFile } from "../../helper.js";
+import mongoose from "mongoose";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+import { SocketEventEnum } from "../../constants/constants.js";
+import { getOrSetCache, invalidateCache } from "../../utils/cache.js";
 
 /**
  * @description Utility function which returns the pipeline stages to structure the chat schema with common lookups
@@ -17,10 +22,10 @@ const pipelineAggregation = () => {
   return [
     {
       $lookup: {
-        from: 'users',
-        foreignField: '_id',
-        localField: 'participants',
-        as: 'participants',
+        from: "users",
+        foreignField: "_id",
+        localField: "participants",
+        as: "participants",
         pipeline: [
           {
             $project: {
@@ -38,18 +43,18 @@ const pipelineAggregation = () => {
     {
       // lookup for the group chats
       $lookup: {
-        from: 'chatmessages',
-        foreignField: '_id',
-        localField: 'lastMessage',
-        as: 'lastMessage',
+        from: "chatmessages",
+        foreignField: "_id",
+        localField: "lastMessage",
+        as: "lastMessage",
         pipeline: [
           {
             // get details of the sender
             $lookup: {
-              from: 'users',
-              foreignField: '_id',
-              localField: 'sender',
-              as: 'sender',
+              from: "users",
+              foreignField: "_id",
+              localField: "sender",
+              as: "sender",
               pipeline: [
                 {
                   $project: {
@@ -63,7 +68,7 @@ const pipelineAggregation = () => {
           },
           {
             $addFields: {
-              sender: { $first: '$sender' },
+              sender: { $first: "$sender" },
             },
           },
         ],
@@ -71,7 +76,7 @@ const pipelineAggregation = () => {
     },
     {
       $addFields: {
-        lastMessage: { $first: '$lastMessage' },
+        lastMessage: { $first: "$lastMessage" },
       },
     },
   ];
@@ -103,7 +108,10 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
 
   // 1. Prevent self-chatting
   if (senderId.toString() === receiverId) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot send messages to yourself');
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "You cannot send messages to yourself",
+    );
   }
 
   // 2. Parallel check for receiver existence and block status
@@ -118,17 +126,18 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
   ]);
 
   if (!receiver) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Receiver does not exist');
+    throw new ApiError(StatusCodes.NOT_FOUND, "Receiver does not exist");
   }
 
   // 3. Enforcement of the Block Record
   if (blockStatus) {
-    const isMeeWhoBlocked = blockStatus.owner.toString() === senderId.toString();
+    const isMeeWhoBlocked =
+      blockStatus.owner.toString() === senderId.toString();
     throw new ApiError(
       StatusCodes.FORBIDDEN,
       isMeeWhoBlocked
-        ? 'You have blocked this user. Unblock them to chat.'
-        : 'Communication with this user is restricted.',
+        ? "You have blocked this user. Unblock them to chat."
+        : "Communication with this user is restricted.",
     );
   }
 
@@ -137,7 +146,9 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
     {
       $match: {
         isGroupChat: false,
-        participants: { $all: [senderId, new mongoose.Types.ObjectId(receiverId)] },
+        participants: {
+          $all: [senderId, new mongoose.Types.ObjectId(receiverId)],
+        },
       },
     },
     ...pipelineAggregation(),
@@ -145,12 +156,16 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
 
   // 5. If chat exists, return it (no socket emit needed)
   if (chat.length > 0) {
-    return new ApiResponse(StatusCodes.OK, 'Chat retrieved successfully', chat[0]);
+    return new ApiResponse(
+      StatusCodes.OK,
+      "Chat retrieved successfully",
+      chat[0],
+    );
   }
 
   // 6. Create new chat if it doesn't exist
   const newChatInstance = await chatModel.create({
-    name: 'One-on-One Chat',
+    name: "One-on-One Chat",
     isGroupChat: false,
     participants: [senderId, new mongoose.Types.ObjectId(receiverId)],
     admin: senderId,
@@ -167,20 +182,27 @@ export const GetOrCreateChatMessage = asyncHandler(async (req, res) => {
   if (!chatPayload) {
     throw new ApiError(
       StatusCodes.INTERNAL_SERVER_ERROR,
-      'Internal server error during chat creation',
+      "Internal server error during chat creation",
     );
   }
 
   // 8. Emit Socket Event for brand NEW chats only
-  const io = req.app.get('io');
+  const io = req.app.get("io");
   if (io) {
     chatPayload.participants.forEach((participant) => {
-      io.to(`user:${participant._id}`).emit(SocketEventEnum.NEW_CHAT_EVENT, chatPayload);
+      io.to(`user:${participant._id}`).emit(
+        SocketEventEnum.NEW_CHAT_EVENT,
+        chatPayload,
+      );
       invalidateCache(`user_chats:${participant._id}`);
     });
   }
 
-  return new ApiResponse(StatusCodes.CREATED, 'Chat created successfully', chatPayload);
+  return new ApiResponse(
+    StatusCodes.CREATED,
+    "Chat created successfully",
+    chatPayload,
+  );
 });
 
 export const createGroupChat = asyncHandler(async (req, res) => {
@@ -189,13 +211,16 @@ export const createGroupChat = asyncHandler(async (req, res) => {
 
   // 1. Basic Validation
   if (!participants || !Array.isArray(participants)) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Participants list is required');
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "Participants list is required",
+    );
   }
 
   if (participants.includes(creatorId.toString())) {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
-      'Participants payload should not contain the group creator',
+      "Participants payload should not contain the group creator",
     );
   }
 
@@ -204,7 +229,10 @@ export const createGroupChat = asyncHandler(async (req, res) => {
 
   // Group needs at least 3 members (Creator + 2 others)
   if (uniqueMemberIds.length < 3) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'A group chat must have at least 3 unique members');
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "A group chat must have at least 3 unique members",
+    );
   }
 
   // 2. Bidirectional Block Check
@@ -217,18 +245,19 @@ export const createGroupChat = asyncHandler(async (req, res) => {
   });
 
   if (blockRecord) {
-    const isCreatorWhoBlocked = blockRecord.owner.toString() === creatorId.toString();
+    const isCreatorWhoBlocked =
+      blockRecord.owner.toString() === creatorId.toString();
     throw new ApiError(
       StatusCodes.FORBIDDEN,
       isCreatorWhoBlocked
-        ? 'You cannot add a user you have blocked to a group.'
-        : 'One or more users have restricted communication with you.',
+        ? "You cannot add a user you have blocked to a group."
+        : "One or more users have restricted communication with you.",
     );
   }
 
   // 3. Create the Group Chat
   const newGroupChatMessage = await chatModel.create({
-    name: name || 'Group Chat',
+    name: name || "Group Chat",
     admin: creatorId,
     participants: uniqueMemberIds,
     isGroupChat: true,
@@ -247,21 +276,31 @@ export const createGroupChat = asyncHandler(async (req, res) => {
   const groupChatPayload = createdGroupChat[0];
 
   if (!groupChatPayload) {
-    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Failed to create group chat');
+    throw new ApiError(
+      StatusCodes.INTERNAL_SERVER_ERROR,
+      "Failed to create group chat",
+    );
   }
 
   // 5. Emit Socket Events to all members
-  const io = req.app.get('io');
+  const io = req.app.get("io");
   if (io) {
     groupChatPayload.participants.forEach((participant) => {
       // Logic assumes participant object has _id after aggregation
       const participantId = participant._id || participant;
-      io.to(`user:${participantId}`).emit(SocketEventEnum.NEW_CHAT_EVENT, groupChatPayload);
+      io.to(`user:${participantId}`).emit(
+        SocketEventEnum.NEW_CHAT_EVENT,
+        groupChatPayload,
+      );
       invalidateCache(`user_chats:${participantId}`);
     });
   }
 
-  return new ApiResponse(StatusCodes.CREATED, 'Group chat created successfully', groupChatPayload);
+  return new ApiResponse(
+    StatusCodes.CREATED,
+    "Group chat created successfully",
+    groupChatPayload,
+  );
 });
 
 export const changeGroupName = asyncHandler(async (req, res) => {
@@ -273,9 +312,10 @@ export const changeGroupName = asyncHandler(async (req, res) => {
     isGroupChat: true,
   });
 
-  if (!groupChat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat does not exists');
+  if (!groupChat)
+    throw new ApiError(StatusCodes.NOT_FOUND, "Chat does not exists");
   if (groupChat._id.toString() === req.user._id.toString()) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Not an Admin');
+    throw new ApiError(StatusCodes.NOT_FOUND, "Not an Admin");
   }
 
   const updatedChat = await chatModel.findByIdAndUpdate(
@@ -302,7 +342,7 @@ export const changeGroupName = asyncHandler(async (req, res) => {
 
   const groupPayload = chat[0];
 
-  const io = req.app.get('io');
+  const io = req.app.get("io");
   if (io) {
     io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
     groupPayload.participants.forEach((participant) => {
@@ -310,7 +350,11 @@ export const changeGroupName = asyncHandler(async (req, res) => {
     });
   }
 
-  return new ApiResponse(StatusCodes.OK, 'Group chat name updated', groupPayload);
+  return new ApiResponse(
+    StatusCodes.OK,
+    "Group chat name updated",
+    groupPayload,
+  );
 });
 
 export const getGroupChatDetails = asyncHandler(async (req, res) => {
@@ -329,20 +373,25 @@ export const getGroupChatDetails = asyncHandler(async (req, res) => {
   const chatPayload = chat[0];
 
   if (!chatPayload) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Chat does not exists');
+    throw new ApiError(StatusCodes.NOT_FOUND, "Chat does not exists");
   }
 
-  return new ApiResponse(StatusCodes.OK, 'Group chat details fetched', chatPayload);
+  return new ApiResponse(
+    StatusCodes.OK,
+    "Group chat details fetched",
+    chatPayload,
+  );
 });
 
 export const leaveGroupChat = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
 
   const chat = await chatModel.findById(chatId);
-  if (!chat || !chat.isGroupChat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat does not exist');
+  if (!chat || !chat.isGroupChat)
+    throw new ApiError(StatusCodes.NOT_FOUND, "Chat does not exist");
 
   if (!chat.participants.includes(req.user._id))
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'You are not a participant');
+    throw new ApiError(StatusCodes.BAD_REQUEST, "You are not a participant");
 
   const updatedChat = await chatModel.findByIdAndUpdate(
     chatId,
@@ -356,9 +405,13 @@ export const leaveGroupChat = asyncHandler(async (req, res) => {
   ]);
 
   const groupPayload = updatedGroup[0];
-  if (!groupPayload) throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Internal server error');
+  if (!groupPayload)
+    throw new ApiError(
+      StatusCodes.INTERNAL_SERVER_ERROR,
+      "Internal server error",
+    );
 
-  const io = req.app.get('io');
+  const io = req.app.get("io");
   if (io) {
     io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
     groupPayload.participants.forEach((participant) => {
@@ -366,7 +419,11 @@ export const leaveGroupChat = asyncHandler(async (req, res) => {
     });
   }
 
-  return new ApiResponse(StatusCodes.OK, 'You have left the group', groupPayload);
+  return new ApiResponse(
+    StatusCodes.OK,
+    "You have left the group",
+    groupPayload,
+  );
 });
 
 export const deleteOneOnOneChat = asyncHandler(async (req, res) => {
@@ -378,50 +435,62 @@ export const deleteOneOnOneChat = asyncHandler(async (req, res) => {
   ]);
 
   const chatPayload = chat[0];
-  if (!chatPayload) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat does not exist');
+  if (!chatPayload)
+    throw new ApiError(StatusCodes.NOT_FOUND, "Chat does not exist");
 
   await chatModel.findByIdAndDelete(chatId);
   // Optionally delete messages
   // await deleteCascadeMessages(chatId);
 
-  const io = req.app.get('io');
+  const io = req.app.get("io");
   if (io) {
     chatPayload.participants.forEach((participant) => {
-      io.to(`user:${participant._id}`).emit(SocketEventEnum.LEAVE_CHAT_EVENT, chatPayload);
+      io.to(`user:${participant._id}`).emit(
+        SocketEventEnum.LEAVE_CHAT_EVENT,
+        chatPayload,
+      );
       invalidateCache(`user_chats:${participant._id}`);
     });
   }
 
-  return new ApiResponse(StatusCodes.OK, 'Chat deleted successfully', {});
+  return new ApiResponse(StatusCodes.OK, "Chat deleted successfully", {});
 });
 
 export const deleteGroupChat = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
 
   const chat = await chatModel.findById(chatId);
-  if (!chat || !chat.isGroupChat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat does not exist');
+  if (!chat || !chat.isGroupChat)
+    throw new ApiError(StatusCodes.NOT_FOUND, "Chat does not exist");
 
   if (chat.admin.toString() !== req.user._id.toString())
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Only admin can delete the group');
+    throw new ApiError(
+      StatusCodes.FORBIDDEN,
+      "Only admin can delete the group",
+    );
 
   const groupPayload = await chatModel
     .aggregate([{ $match: { _id: chat._id } }, ...pipelineAggregation()])
     .then((r) => r[0]);
 
-  if (!groupPayload) throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Internal error');
+  if (!groupPayload)
+    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, "Internal error");
 
   await chatModel.findByIdAndDelete(chatId);
   await deleteCascadeMessages(chatId);
 
-  const io = req.app.get('io');
+  const io = req.app.get("io");
   if (io) {
     groupPayload.participants.forEach((participant) => {
-      io.to(`user:${participant._id}`).emit(SocketEventEnum.LEAVE_CHAT_EVENT, groupPayload);
+      io.to(`user:${participant._id}`).emit(
+        SocketEventEnum.LEAVE_CHAT_EVENT,
+        groupPayload,
+      );
       invalidateCache(`user_chats:${participant._id}`);
     });
   }
 
-  return new ApiResponse(StatusCodes.OK, 'Group chat deleted successfully', {});
+  return new ApiResponse(StatusCodes.OK, "Group chat deleted successfully", {});
 });
 
 export const addParticipantToGroupChat = asyncHandler(async (req, res) => {
@@ -432,16 +501,20 @@ export const addParticipantToGroupChat = asyncHandler(async (req, res) => {
     isGroupChat: true,
   });
 
-  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Group chat does not exists');
+  if (!chat)
+    throw new ApiError(StatusCodes.NOT_FOUND, "Group chat does not exists");
 
   if (chat.admin?.toString() !== req.user._id.toString()) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only admin can add participants');
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "Only admin can add participants",
+    );
   }
 
   const existingParticipants = chat.participants;
 
   if (existingParticipants?.includes(participantId)) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Participant already exists');
+    throw new ApiError(StatusCodes.BAD_REQUEST, "Participant already exists");
   }
 
   const updatedGroupChat = await chatModel.findByIdAndUpdate(
@@ -466,7 +539,7 @@ export const addParticipantToGroupChat = asyncHandler(async (req, res) => {
 
   const groupPayload = updatedGroup[0];
 
-  const io = req.app.get('io');
+  const io = req.app.get("io");
   if (io) {
     io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
     groupPayload.participants.forEach((participant) => {
@@ -474,7 +547,11 @@ export const addParticipantToGroupChat = asyncHandler(async (req, res) => {
     });
   }
 
-  return new ApiResponse(StatusCodes.OK, 'Participant added successfully', groupPayload);
+  return new ApiResponse(
+    StatusCodes.OK,
+    "Participant added successfully",
+    groupPayload,
+  );
 });
 
 export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
@@ -485,16 +562,22 @@ export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
     isGroupChat: true,
   });
 
-  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat does not exists');
+  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, "Chat does not exists");
 
   const existingParticipants = chat.participants;
 
   if (chat.admin.toString() !== req.user._id.toString()) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only admin can remove participants');
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "Only admin can remove participants",
+    );
   }
 
   if (!existingParticipants.includes(participantId)) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Participant does not exists in group');
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      "Participant does not exists in group",
+    );
   }
 
   const updatedGroupChat = await chatModel.findByIdAndUpdate(
@@ -519,7 +602,7 @@ export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
 
   const groupPayload = updatedGroup[0];
 
-  const io = req.app.get('io');
+  const io = req.app.get("io");
   if (io) {
     io.to(`chat:${chatId}`).emit(SocketEventEnum.NEW_GROUP_NAME, groupPayload);
     groupPayload.participants.forEach((participant) => {
@@ -527,7 +610,11 @@ export const removeParticipantFromGroupChat = asyncHandler(async (req, res) => {
     });
   }
 
-  return new ApiResponse(StatusCodes.OK, 'Participant removed successfully', groupPayload);
+  return new ApiResponse(
+    StatusCodes.OK,
+    "Participant removed successfully",
+    groupPayload,
+  );
 });
 
 export const getAllChats = asyncHandler(async (req, res) => {
@@ -538,7 +625,11 @@ export const getAllChats = asyncHandler(async (req, res) => {
     return await chatModel.aggregate([
       {
         $match: {
-          participants: { $elemMatch: { $eq: req.user._id } }, // get all chats that have logged in user as a participant
+          participants: {
+            $elemMatch: {
+              $eq: req.user._id,
+            },
+          }, // get all chats that have logged in user as a participant
         },
       },
       {
@@ -547,8 +638,8 @@ export const getAllChats = asyncHandler(async (req, res) => {
         },
       },
       ...pipelineAggregation(),
-    ]);
+    ], 300);
   });
 
-  return new ApiResponse(200, 'User chats fetched successfully!', chats || []);
+  return new ApiResponse(200, "User chats fetched successfully!", chats || []);
 });
