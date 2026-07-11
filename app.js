@@ -52,7 +52,7 @@ const __dirname = path.dirname(__filename);
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
-  ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []),
+  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : []),
 ];
 
 console.log("Allowed CORS origins:", allowedOrigins);
