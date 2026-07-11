@@ -113,6 +113,7 @@ const registerUser = asyncHandler(async (req, res) => {
       verificationUrl,
       name,
       appName: process.env.APP_NAME,
+      currentYear: new Date().getFullYear(),
     },
     templateName: "verify-mail",
   });
@@ -228,6 +229,8 @@ const verifyEmail = asyncHandler(async (req, res) => {
 const resendEmailVerification = asyncHandler(async (req, res) => {
   const user = await userModel.findById(req.user._id);
 
+  console.log({ user });
+
   if (!user) {
     throw new ApiError(StatusCodes.NOT_FOUND, "User does not exists", []);
   }
@@ -255,7 +258,7 @@ const resendEmailVerification = asyncHandler(async (req, res) => {
 
   const verificationUrl = `${link}/auth/verify-email/?userId=${user?._id}&token=${unHashedToken}`;
 
-  const name = `${user.firstname} ${user.lastname}`;
+  const name = `${user.username}`;
 
   await sendMail({
     to: user.email,
@@ -266,12 +269,17 @@ const resendEmailVerification = asyncHandler(async (req, res) => {
       name,
       from: process.env.EMAIL,
       app: process.env.APP_NAME,
+      currentYear: new Date().getFullYear(),
     },
   });
 
-  return new ApiResponse(StatusCodes.OK, "User registration successful", {
-    url: verificationUrl,
-  });
+  return new ApiResponse(
+    StatusCodes.OK,
+    "Email verification resent successful",
+    {
+      url: verificationUrl,
+    },
+  );
 });
 
 const logOut = asyncHandler(
@@ -324,6 +332,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
       resetUrl,
       name,
       appName: process.env.APP_NAME,
+      currentYear: new Date().getFullYear(),
     },
     templateName: "forgot-password",
   });
@@ -643,6 +652,7 @@ const resendEmailVerificationForNewUser = asyncHandler(
         name,
         from: process.env.EMAIL,
         app: process.env.APP_NAME,
+        currentYear: new Date().getFullYear(),
       },
     });
 

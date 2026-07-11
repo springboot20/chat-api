@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-      <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Verify Your Email</title>
     <style>
       body {
@@ -55,13 +55,18 @@
       </header>
       <section class="email-body">
         <h2>Hello {{name}},</h2>
-        <p>Thanks for signing up. Please confirm your email by clicking the button below:</p>
+        <p>
+          Thanks for signing up. Please confirm your email by clicking the
+          button below:
+        </p>
         <a href="{{verificationUrl}}" class="email-button">Verify Email</a>
         <p style="margin-top: 30px">
           If you didn’t create this account, you can ignore this email.
         </p>
       </section>
-      <footer class="email-footer">&copy; 2025 YourApp. All rights reserved.</footer>
+      <footer class="email-footer">
+        &copy; {{currentYear}} {{appName}}. All rights reserved.
+      </footer>
     </div>
   </body>
 </html>

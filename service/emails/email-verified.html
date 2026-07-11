@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-      <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Email Verified</title>
     <style>
       body {
@@ -40,7 +40,14 @@
       <p>Hey {{name}}, your email has been verified.</p>
       <p>You're now ready to access all features of YourApp.</p>
       <a href="{{dashboardUrl}}" class="btn">Go to Dashboard</a>
-      <p class="footer">See you inside! 👋<br />© 2025 YourApp. All rights reserved.</p>
+      <footer class="footer">
+        &copy; <span></span> {{appName}}. All rights reserved.
+      </footer>
     </div>
+
+    <script>
+      document.querySelector(".footer > span").textContent =
+        `${new Date(Date.now()).getFullYear()}`;
+    </script>
   </body>
 </html>

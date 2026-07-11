@@ -9,7 +9,7 @@
         margin: 0;
         padding: 40px 20px;
         background-color: #f9fafb;
-        font-family: 'Segoe UI', sans-serif;
+        font-family: "Segoe UI", sans-serif;
       }
       .wrapper {
         max-width: 600px;
@@ -63,17 +63,29 @@
       </div>
       <div class="body">
         <h2>Hi {{name}},</h2>
-        <p>We're thrilled to have you on board! 🎊. Your account has been successfully created.</p>
         <p>
-          Get started by visiting your dashboard or exploring the features we’ve built just for you.
+          We're thrilled to have you on board! 🎊. Your account has been
+          successfully created.
+        </p>
+        <p>
+          Get started by visiting your dashboard or exploring the features we’ve
+          built just for you.
         </p>
         <a href="{{dashboardUrl}}" class="btn">Go to Dashboard</a>
         <p style="margin-top: 30px">
-          If you have any questions, feel free to reply to this email — we're always happy to help!
+          If you have any questions, feel free to reply to this email — we're
+          always happy to help!
         </p>
         <p>Cheers, <br />The {{appName}} Team</p>
       </div>
-      <div class="footer">&copy; 2025 {{appName}} Inc. All rights reserved.</div>
+      <footer class="footer">
+        &copy; <span></span> {{appName}}. All rights reserved.
+      </footer>
     </div>
+
+    <script>
+      document.querySelector(".footer > span").textContent =
+        `${new Date(Date.now()).getFullYear()}`;
+    </script>
   </body>
 </html>
