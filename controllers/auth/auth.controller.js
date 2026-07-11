@@ -591,14 +591,28 @@ const getUsers = asyncHandler(async (req, res) => {
 });
 
 const updateAccount = asyncHandler(async (req, res) => {
-  const { username, about } = req.body;
+  const { username, about, completedTour } = req.body;
+
+  const update = {};
+
+  if (username !== undefined) {
+    update.username = username;
+  }
+
+  if (about !== undefined) {
+    update.about = about;
+  }
+
+  if (completedTour !== undefined) {
+    update.$addToSet = {
+      completedTours: completedTour,
+    };
+  }
 
   const updatedUser = await userModel
-    .findByIdAndUpdate(
-      req.user._id,
-      { $set: { username, about } },
-      { new: true },
-    )
+    .findByIdAndUpdate(req.user._id, update, {
+      new: true,
+    })
     .select(
       "-password -refreshToken -emailVerificationToken -emailVerificationExpiry",
     );

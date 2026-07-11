@@ -19,6 +19,10 @@ const userSchema = new Schema(
       lowercase: true,
       unique: true,
     },
+    completedTours: {
+      type: [String],
+      default: [],
+    },
     avatar: {
       type: {
         url: String,
