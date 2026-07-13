@@ -700,14 +700,11 @@ export const createMessage = asyncHandler(async (req, res) => {
         if (isProduction) {
           // PRODUCTION: Upload to Cloudinary using file path (NOT buffer)
           const uploadResult = await uploadFileToCloudinary(
-            attachment.path,
+            attachment.buffer,
             `${process.env.CLOUDINARY_BASE_FOLDER}/${category}`,
           );
           finalUrl = uploadResult.secure_url;
           publicId = uploadResult.public_id;
-
-          // CLEANUP: Remove local file after successful cloud upload
-          removeLocalFile(attachment.path);
         } else {
           // DEVELOPMENT: Use local path for offline access
           finalUrl = getStaticFilePath(req, category, attachment.filename);
@@ -1205,14 +1202,11 @@ export const replyToMessage = asyncHandler(async (req, res) => {
         if (isProduction) {
           // PRODUCTION: Upload to Cloudinary using file path (NOT buffer)
           const uploadResult = await uploadFileToCloudinary(
-            attachment.path,
+            attachment.buffer,
             `${process.env.CLOUDINARY_BASE_FOLDER}/${category}`,
           );
           finalUrl = uploadResult.secure_url;
           publicId = uploadResult.public_id;
-
-          // CLEANUP: Remove local file after successful cloud upload
-          removeLocalFile(attachment.path);
         } else {
           // DEVELOPMENT: Use local path for offline access
           finalUrl = getStaticFilePath(req, category, attachment.filename);
