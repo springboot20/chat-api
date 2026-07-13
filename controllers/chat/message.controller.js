@@ -98,6 +98,8 @@ const pipelineAggregation = () => {
               attachments: 1,
               replyId: 1,
               updatedAt: 1,
+              contentType: 1,
+              polling: 1,
             },
           },
         ],
@@ -332,7 +334,7 @@ export const getLinkPreview = asyncHandler(async (req, res) => {
   return new ApiResponse(StatusCodes.OK, "Preview generated", preview);
 });
 
-export const getAllMessages  = asyncHandler(async (req, res) => {
+export const getAllMessages = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
   const currentUserId = req.user._id;
   const cacheKey = `chat_messages:${chatId}`;
@@ -461,7 +463,12 @@ export const toggleVoteToPollingVote = asyncHandler(async (req, res) => {
 
 export const createPollingVote = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
-  const { questionTitle, options = [], allowMultipleAnswer } = req.body;
+  const {
+    questionTitle,
+    options = [],
+    allowMultipleAnswer,
+    messageId,
+  } = req.body;
 
   const userId = req.user._id;
 
@@ -480,10 +487,7 @@ export const createPollingVote = asyncHandler(async (req, res) => {
     contentType: "polling",
     sender: userId,
     chat: chatId,
-    attachments: [],
-    mentions: [],
-    deliveredTo: [],
-    seenBy: [],
+    replyId: messageId ? new mongoose.Types.ObjectId(messageId) : undefined,
     polling: {
       questionTitle,
       allowMultipleAnswer: Boolean(allowMultipleAnswer),
@@ -538,14 +542,33 @@ export const createPollingVote = asyncHandler(async (req, res) => {
               localField: "sender",
               foreignField: "_id",
               as: "sender",
-              pipeline: [{ $project: { username: 1, avatar: 1 } }],
+              pipeline: [
+                {
+                  $project: {
+                    username: 1,
+                    avatar: 1,
+                  },
+                },
+              ],
             },
           },
-          { $addFields: { sender: { $first: "$sender" } } },
+          {
+            $addFields: {
+              sender: {
+                $first: "$sender",
+              },
+            },
+          },
         ],
       },
     },
-    { $addFields: { lastMessage: { $first: "$lastMessage" } } },
+    {
+      $addFields: {
+        lastMessage: {
+          $first: "$lastMessage",
+        },
+      },
+    },
   ]);
 
   // 6️⃣ Emit events to the chat room
@@ -726,15 +749,17 @@ export const createMessage = asyncHandler(async (req, res) => {
 
   let validatedPreview = null;
 
-  if (linkPreviewUrl && linkPreviewUrl) {
-    const urlInMessage = content.match(/(https?:\/\/[^\s]+)/i)?.[0];
-    
+  if (linkPreviewUrl) {
+    const urlInMessage = (content || "").match(/(https?:\/\/[^\s]+)/i)?.[0];
+
     if (urlInMessage === linkPreviewUrl) {
       validatedPreview = linkPreviewUrl;
     }
   }
 
-  const linkPreview = await LinkPreviewModel.findOne({ url: validatedPreview });
+  const linkPreview = validatedPreview
+    ? await LinkPreviewModel.findOne({ url: validatedPreview })
+    : null;
 
   // 1️⃣ Create message
   const message = await messageModel.create({
@@ -1229,15 +1254,17 @@ export const replyToMessage = asyncHandler(async (req, res) => {
 
   let validatedPreview = null;
 
-  if (linkPreviewUrl && linkPreviewUrl) {
-    const urlInMessage = content.match(/(https?:\/\/[^\s]+)/i)?.[0];
+  if (linkPreviewUrl) {
+    const urlInMessage = (content || "").match(/(https?:\/\/[^\s]+)/i)?.[0];
 
     if (urlInMessage === linkPreviewUrl) {
       validatedPreview = linkPreviewUrl;
     }
   }
 
-  const linkPreview = await LinkPreviewModel.findOne({ url: validatedPreview });
+  const linkPreview = validatedPreview
+    ? await LinkPreviewModel.findOne({ url: validatedPreview })
+    : null;
 
   // 1️⃣ Create reply message
   const message = await messageModel.create({
@@ -1293,14 +1320,33 @@ export const replyToMessage = asyncHandler(async (req, res) => {
               localField: "sender",
               foreignField: "_id",
               as: "sender",
-              pipeline: [{ $project: { username: 1, avatar: 1 } }],
+              pipeline: [
+                {
+                  $project: {
+                    username: 1,
+                    avatar: 1,
+                  },
+                },
+              ],
             },
           },
-          { $addFields: { sender: { $first: "$sender" } } },
+          {
+            $addFields: {
+              sender: {
+                $first: "$sender",
+              },
+            },
+          },
         ],
       },
     },
-    { $addFields: { lastMessage: { $first: "$lastMessage" } } },
+    {
+      $addFields: {
+        lastMessage: {
+          $first: "$lastMessage",
+        },
+      },
+    },
   ]);
 
   // 5️⃣ Notify participants (ONLINE + OFFLINE SAFE)
